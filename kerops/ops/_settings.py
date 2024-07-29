@@ -2,7 +2,7 @@ from functools import partial
 from warnings import warn
 
 
-# TODO: dirty, factorize responsibility in another way
+# TODO: dirty, factorize responsibility in another way.
 FUNC_NUM_WARPS = {
     'AddStats': 8,
     'AddStatsBackward': 8,
