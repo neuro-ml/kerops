@@ -3,14 +3,17 @@ from math import ceil, floor, log2
 import torch
 
 from ..kernels.quantization import _DequantUint8Window_impl, _QuantUint8Window_impl
-from ._settings import settings_wrapper
+from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
 __all__ = ['QuantUint8Window', 'DequantUint8Window']
 
 
-@settings_wrapper
-def QuantUint8Window(x, window, _num_warps, _l1_cache_bytes):
+@configure(
+    _num_warps=lambda args: 4,
+    _l1_cache_bytes=lambda args: get_l1_cache()
+)
+def QuantUint8Window(x, window, *, _num_warps: ConfigurableArg, _l1_cache_bytes: ConfigurableArg):
     numel = x.numel()
     MAX_SIZE = _l1_cache_bytes // (2 * x.element_size())
     BLOCK_SIZE = min(MAX_SIZE, numel)
@@ -23,8 +26,11 @@ def QuantUint8Window(x, window, _num_warps, _l1_cache_bytes):
     return output
 
 
-@settings_wrapper
-def DequantUint8Window(x, init_dtype, window, _num_warps, _l1_cache_bytes):
+@configure(
+    _num_warps=lambda args: 4,
+    _l1_cache_bytes=lambda args: get_l1_cache()
+)
+def DequantUint8Window(x, init_dtype, window, _num_warps: ConfigurableArg, _l1_cache_bytes: ConfigurableArg):
     numel = x.numel()
     output = torch.empty_like(x, dtype=init_dtype)
 

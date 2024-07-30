@@ -5,11 +5,14 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.avgpool import _AvgPoolCeilStats_cl3d_backward_impl, _AvgPoolCeilStats_cl3d_impl
-from ._settings import settings_wrapper
+from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
-@settings_wrapper
-def AvgPoolCeilStats(x, _l1_cache_bytes, _num_warps):
+@configure(
+    _l1_cache_bytes=lambda args: get_l1_cache(),
+    _num_warps=lambda args: 2,
+)
+def AvgPoolCeilStats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     input_d = x.shape[-1]
     MAX_SIZE = _l1_cache_bytes // x.element_size()  # 32768 for fp16
@@ -57,8 +60,11 @@ def AvgPoolCeilStats(x, _l1_cache_bytes, _num_warps):
     return output, mean, sqmean
 
 
-@settings_wrapper
-def AvgPoolCeilStatsBackward(inpgrad, meangrad, sqmeangrad, output, outgrad_shape, _l1_cache_bytes, _num_warps):
+@configure(
+    _l1_cache_bytes=lambda args: get_l1_cache(),
+    _num_warps=lambda args: 4
+)
+def AvgPoolCeilStatsBackward(inpgrad, meangrad, sqmeangrad, output, outgrad_shape, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     MAX_SIZE = _l1_cache_bytes // inpgrad.element_size()  # 32768 for fp16
     bsize, num_channels, h_outgrad, w_outgrad, d_outgrad = outgrad_shape
     d_inpgrad = inpgrad.shape[-1]

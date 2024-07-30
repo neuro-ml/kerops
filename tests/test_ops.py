@@ -6,8 +6,8 @@ from torch.nn import functional as F
 from kerops.ops.addition import AddStats, AddStatsBackward
 from kerops.ops.avgpool import AvgPoolCeilStats, AvgPoolCeilStatsBackward
 from kerops.ops.bnrelu import ApplyBNReLU, ApplyBNReLUBackward
-from kerops.ops.conv import DWConv, DWConvWGRAD, _configure_dwconv
-from kerops.ops.linear import ReLULinearAdd, ReLULinearBackward, _configure_linear
+from kerops.ops.conv import DWConv, DWConvWGRAD
+from kerops.ops.linear import ReLULinearAdd, ReLULinearBackward
 from kerops.ops.stats import Stats, StatsBackward
 from kerops.utils import allclose_two_stage
 
@@ -268,11 +268,9 @@ def test_dwconv(bsize, channels, other_1, other_2, other_3):
         weight_standard = nn.Conv3d(channels, channels, 3, groups=channels).to('cuda').weight.to(torch.float16)
         weight_check = weight_standard[:, 0].permute(1, 2, 3, 0).contiguous()
 
-        [_num_warps, D_block], _ = _configure_dwconv(channels)
-
         with torch.inference_mode():
             out_standard = F.conv3d(x, weight_standard, None, padding=(1, 1, 1), stride=(1, 1, 1), groups=channels)
-            out_check = DWConv(x, weight_check, _num_warps=_num_warps, D_block=D_block)
+            out_check = DWConv(x, weight_check)
 
         assert allclose_two_stage(
             out_standard,
@@ -304,7 +302,6 @@ def test_dwconv_wgrad(bsize, channels, other_1, other_2, other_3):
             / 5
         )
         weight_standard = torch.randn(channels, 1, 3, 3, 3, device='cuda', dtype=torch.float16)
-        _, [_num_warps, D_block] = _configure_dwconv(channels)
 
         with torch.inference_mode():
             _, grad_w, _ = torch.ops.aten.convolution_backward(
@@ -322,7 +319,7 @@ def test_dwconv_wgrad(bsize, channels, other_1, other_2, other_3):
             )
             grad_w = grad_w[:, 0].permute(1, 2, 3, 0).contiguous()
 
-            grad_w_check = DWConvWGRAD(x, grad, _num_warps=_num_warps, D_block=D_block)
+            grad_w_check = DWConvWGRAD(x, grad)
 
         assert allclose_two_stage(
             grad_w,
@@ -347,13 +344,9 @@ def test_relu_linear_add(bsize, other_1, other_2, other_3, channels_out):
     )
     weight = nn.Conv3d(32, channels_out, 1, bias=False).weight.data.to('cuda').to(torch.float16)
 
-    [num_warps, D_block, ILP], _ = _configure_linear(32)
-
     with torch.inference_mode():
         out_1 = F.conv3d(F.relu(x), weight, None, stride=(1, 1, 1), padding=(0, 0, 0)) + other
-        out_2 = ReLULinearAdd(
-            x, weight[:, :, 0, 0, 0].permute(1, 0).contiguous(), other, _num_warps=num_warps, D_block=D_block, _ILP=ILP
-        )
+        out_2 = ReLULinearAdd(x, weight[:, :, 0, 0, 0].permute(1, 0).contiguous(), other)
 
     assert allclose_two_stage(
         out_1, out_2, atol_strict=1e-4, rtol_strict=1e-4, rtol_narrow=1e-3, atol_narrow=1e-3, debug_info='print'
@@ -380,13 +373,11 @@ def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out
             / 5
         )
 
-        _, [num_warps, D_block, ILP] = _configure_linear(32)
-
         out_1 = F.conv3d(F.relu(x), weight_x, None, stride=(1, 1, 1), padding=(0, 0, 0))
         out_1.backward(grad)
 
         grad_x_check, grad_weight_x_check = ReLULinearBackward(
-            x, grad, weight_x[:, :, 0, 0, 0].permute(1, 0).contiguous(), _num_warps=num_warps, D_block=D_block, _ILP=ILP
+            x, grad, weight_x[:, :, 0, 0, 0].permute(1, 0).contiguous()
         )
         grad_weight_x_check = grad_weight_x_check.permute(1, 0).contiguous()[:, :, None, None, None]
 

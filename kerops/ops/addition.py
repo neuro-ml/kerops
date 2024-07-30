@@ -5,11 +5,14 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.addition import _AddStats_cl3d_backward_impl, _AddStats_cl3d_impl
-from ._settings import settings_wrapper
+from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
-@settings_wrapper
-def AddStats(x, y, _l1_cache_bytes, _num_warps, inplace=False):
+@configure(
+    _l1_cache_bytes=lambda args: get_l1_cache(),
+    _num_warps=lambda args: 8
+)
+def AddStats(x, y, inplace=False, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.shape == y.shape
@@ -49,8 +52,11 @@ def AddStats(x, y, _l1_cache_bytes, _num_warps, inplace=False):
     return output, mean, sqmean
 
 
-@settings_wrapper
-def AddStatsBackward(add_grad, mean_grad, sqmean_grad, add_result, _l1_cache_bytes, _num_warps):
+@configure(
+    _l1_cache_bytes=lambda args: get_l1_cache(),
+    _num_warps=lambda args: 8
+)
+def AddStatsBackward(add_grad, mean_grad, sqmean_grad, add_result, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = add_grad.shape[1]
     numel = add_grad.numel()
     assert add_result.shape == add_grad.shape

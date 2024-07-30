@@ -4,9 +4,10 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ..kernels.dw_conv import _DWConv_cl3d_impl, _DWConv_wgrad_cl3d_impl
+from ._settings import configure, ConfigurableArg
 
 
-def _configure_dwconv(channels):
+def configure_dwconv(channels):
     """
     Hardcoded, benchmarked on RTX 3090, mb should be generated automatically
     H, W, D = [350, 350, 128]
@@ -31,7 +32,12 @@ def _configure_dwconv(channels):
     return HARDCODED_CONFIG.get(channels, None)
 
 
-def DWConv(x, weight, ACCTYPE='float32', _num_warps=2, D_block=32):
+@configure(
+    ACCTYPE=lambda args: 'float32',
+    _num_warps=lambda args: configure_dwconv(args[1].shape[-1])[0][0],
+    D_block=lambda args: configure_dwconv(args[1].shape[-1])[0][1],
+)
+def DWConv(x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32):
     channels = x.shape[1]
 
     assert x.ndim == 5
@@ -72,7 +78,12 @@ def DWConv(x, weight, ACCTYPE='float32', _num_warps=2, D_block=32):
     return output
 
 
-def DWConvWGRAD(x, grad, _num_warps=2, ACCTYPE='float32', D_block=32, _l1_cache_bytes=65536):
+@configure(
+    _num_warps=lambda args: configure_dwconv(args[0].shape[1])[1][0],
+    ACCTYPE=lambda args: 'float32',
+    D_block=lambda args: configure_dwconv(args[0].shape[1])[1][1],
+)
+def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg=2, D_block: ConfigurableArg = 32):
     channels = x.shape[1]
 
     assert x.ndim == grad.ndim == 5

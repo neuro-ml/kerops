@@ -1,51 +1,65 @@
-from functools import partial
-from warnings import warn
+import inspect
+from functools import wraps
 
 
-# TODO: dirty, factorize responsibility in another way.
-FUNC_NUM_WARPS = {
-    'AddStats': 8,
-    'AddStatsBackward': 8,
-    'ApplyBNReLU': 8,
-    'ApplyBNReLUBackward': 8,
-    'AvgPoolCeilStats': 2,
-    'AvgPoolCeilStatsBackward': 4,
-    'Stats': 8,
-    'StatsBackward': 8,
-    'QuantUint8Window': 4,
-    'DequantUint8Window': 4,
-}
-L1_CACHE_BYTES = 65536
+class ConfigurableArg:
+    pass
 
 
-def get_num_warps(function):
-    global FUNC_NUM_WARPS
-    if function in FUNC_NUM_WARPS:
-        return FUNC_NUM_WARPS[function]
-    raise ValueError(f'function {function} is not registred')
+class EmptyKwarg:
+    pass
 
 
-def get_l1_cache():
-    global L1_CACHE_BYTES
-    return L1_CACHE_BYTES
+def check_function_signature(signature):
+    for param in signature.parameters.values():
+        if param.annotation is ConfigurableArg and param.kind is not inspect.Parameter.KEYWORD_ONLY:
+            raise RuntimeError(f'ConfigurableArg must be keyword-only - {param.name}')
+        elif param.annotation is not ConfigurableArg and param.kind is inspect.Parameter.KEYWORD_ONLY:
+            raise RuntimeError(f'non-ConfigurableArg must not be keyword-only - {param.name}')
 
 
-def register_function(function, num_warps):
-    global FUNC_NUM_WARPS
-    if function in FUNC_NUM_WARPS:
-        warn(f'function {function} is already registred, num_warps is set as {num_warps}')
-    FUNC_NUM_WARPS[function] = num_warps
+def get_configurable_args_from_signature(signature):
+    return [param.name for param in signature.parameters.values() if param.annotation is ConfigurableArg]
 
 
-def set_l1_cache(new_cache):
-    global L1_CACHE_BYTES
-    L1_CACHE_BYTES = new_cache
+def is_configurators_fit(configurable_args, configurators_names):
+    if set(configurable_args) != set(configurators_names):
+        raise RuntimeError(f'Configuration mismatch, {configurable_args=}, {configurators_names=}')
 
 
-def settings_wrapper(kernel_func):
-    func_name = kernel_func.__name__
-    _l1_cache_bytes = get_l1_cache()
-    _num_warps = get_num_warps(func_name)
-    wrapped_kernel = partial(kernel_func, _l1_cache_bytes=_l1_cache_bytes, _num_warps=_num_warps)
+def configure(**configurators):
+    def wrapper(function):
+        signature = inspect.signature(function)
+        
+        check_function_signature(signature)
 
-    return wrapped_kernel
+        configurable_args = get_configurable_args_from_signature(signature)
+
+        is_configurators_fit(configurable_args, configurators.keys())
+
+        return wraps(function)(ConfiguredFunction(function, signature, configurable_args, **configurators))
+    return wrapper
+
+
+class ConfiguredFunction:
+    def __init__(self, origin_function, signature, configurable_args, **configurators):
+        self.origin_function = origin_function
+        self.signature = signature
+        self.configurable_args = configurable_args
+        self.configurators = configurators
+
+
+    def __call__(self, *args, **kwargs):
+        tmp_kwargs = {**{arg: EmptyKwarg for arg in self.configurable_args}, **kwargs}
+        
+        bind = self.signature.bind(*args, **tmp_kwargs)
+        bind.apply_defaults()
+
+        configured_kwargs = {k: self.configurators[k](bind.args) if input_v is EmptyKwarg else input_v for k, input_v in bind.kwargs.items()}
+
+        return self.origin_function(*bind.args, **configured_kwargs)
+
+
+    def reconfigure(self, **new_configurators):
+        is_configurators_fit(self.configurable_args, new_configurators.keys())
+        self.configurators = new_configurators

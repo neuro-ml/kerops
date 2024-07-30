@@ -4,9 +4,10 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.linear import _ReLULinearAdd, _ReLULinearAddBackward
+from ._settings import configure, ConfigurableArg
 
 
-def _configure_linear(in_channels):
+def configure_linear(in_channels):
     # num_warps, D_block, ILP
     HARDCODED_CONFIG = {
         16: [[2, 16, 8], [4, 16, 16]],
@@ -17,14 +18,19 @@ def _configure_linear(in_channels):
 
     return HARDCODED_CONFIG.get(in_channels, None)
 
-
+@configure(
+    _num_warps=lambda args: configure_linear(args[1].shape[0])[0][0],
+    D_block=lambda args: configure_linear(args[1].shape[0])[0][1],
+    _ILP=lambda args: configure_linear(args[1].shape[0])[0][2],
+)
 def ReLULinearAdd(
     x,
     weight,
     add_other,
-    _num_warps=2,
-    D_block=16,
-    _ILP=8,
+    *,
+    _num_warps: ConfigurableArg=2,
+    D_block: ConfigurableArg=16,
+    _ILP: ConfigurableArg=8,
 ):
     in_channels = x.shape[1]
     out_channels = weight.shape[1]
@@ -65,13 +71,19 @@ def ReLULinearAdd(
     return output
 
 
+@configure(
+    _num_warps=lambda args: configure_linear(args[2].shape[0])[1][0],
+    D_block=lambda args: configure_linear(args[2].shape[0])[1][1],
+    _ILP=lambda args: configure_linear(args[2].shape[0])[1][2],
+)
 def ReLULinearBackward(
     input,
     grad,
     weight,
-    _num_warps=8,
-    D_block=32,
-    _ILP=16,
+    *,
+    _num_warps: ConfigurableArg=8,
+    D_block: ConfigurableArg=32,
+    _ILP: ConfigurableArg=16,
 ):
     in_channels = weight.shape[0]
     out_channels = grad.shape[1]
