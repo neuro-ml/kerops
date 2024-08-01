@@ -2,6 +2,19 @@ import inspect
 from functools import wraps
 
 
+L1_CACHE_BYTES = 65536
+
+
+def get_l1_cache():
+    global L1_CACHE_BYTES
+    return L1_CACHE_BYTES
+
+
+def set_l1_cache(new_cache):
+    global L1_CACHE_BYTES
+    L1_CACHE_BYTES = new_cache
+
+
 class ConfigurableArg:
     pass
 
@@ -22,9 +35,54 @@ def get_configurable_args_from_signature(signature):
     return [param.name for param in signature.parameters.values() if param.annotation is ConfigurableArg]
 
 
+def get_usual_args_from_signature(signature):    
+    return [
+        param.name for param in signature.parameters.values() 
+        if param.kind is inspect.Parameter.POSITIONAL_ONLY or param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ]
+
+
 def is_configurators_fit(configurable_args, configurators_names):
     if set(configurable_args) != set(configurators_names):
         raise RuntimeError(f'Configuration mismatch, {configurable_args=}, {configurators_names=}')
+
+
+def configurator_call(args, configurator, usual_args):
+    conf_sign = inspect.signature(configurator)
+
+    # take argnames from configurator, map args with respect to origin function's argnames
+    conf_args = [args[usual_args.index(param.name)] for param in conf_sign.parameters.values()]
+
+    return configurator(*conf_args)
+
+
+class ConfiguredFunction:
+    def __init__(self, origin_function, signature, configurable_args, usual_args, **configurators):
+        self.origin_function = origin_function
+        self.signature = signature
+        self.configurable_args = configurable_args
+        self.usual_args = usual_args
+        self.configurators = configurators
+
+
+    def __call__(self, *args, **kwargs):
+        tmp_kwargs = {**{arg: EmptyKwarg for arg in self.configurable_args}, **kwargs}
+        
+        bind = self.signature.bind(*args, **tmp_kwargs)
+        bind.apply_defaults()
+
+        configured_kwargs = {
+            k: configurator_call(bind.args, self.configurators[k], self.usual_args)
+            if input_v is EmptyKwarg else input_v 
+            for k, input_v in bind.kwargs.items()
+        }
+
+        return self.origin_function(*bind.args, **configured_kwargs)
+
+
+    def reconfigure(self, **new_configurators):
+        is_configurators_fit(self.configurable_args, new_configurators.keys())
+        self.configurators = new_configurators
 
 
 def configure(**configurators):
@@ -35,31 +93,9 @@ def configure(**configurators):
 
         configurable_args = get_configurable_args_from_signature(signature)
 
+        usual_args = get_usual_args_from_signature(signature)
+
         is_configurators_fit(configurable_args, configurators.keys())
 
-        return wraps(function)(ConfiguredFunction(function, signature, configurable_args, **configurators))
+        return wraps(function)(ConfiguredFunction(function, signature, configurable_args, usual_args, **configurators))
     return wrapper
-
-
-class ConfiguredFunction:
-    def __init__(self, origin_function, signature, configurable_args, **configurators):
-        self.origin_function = origin_function
-        self.signature = signature
-        self.configurable_args = configurable_args
-        self.configurators = configurators
-
-
-    def __call__(self, *args, **kwargs):
-        tmp_kwargs = {**{arg: EmptyKwarg for arg in self.configurable_args}, **kwargs}
-        
-        bind = self.signature.bind(*args, **tmp_kwargs)
-        bind.apply_defaults()
-
-        configured_kwargs = {k: self.configurators[k](bind.args) if input_v is EmptyKwarg else input_v for k, input_v in bind.kwargs.items()}
-
-        return self.origin_function(*bind.args, **configured_kwargs)
-
-
-    def reconfigure(self, **new_configurators):
-        is_configurators_fit(self.configurable_args, new_configurators.keys())
-        self.configurators = new_configurators

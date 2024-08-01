@@ -9,8 +9,8 @@ from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
 @configure(
-    _l1_cache_bytes=lambda args: get_l1_cache(),
-    _num_warps=lambda args: 2,
+    _l1_cache_bytes=lambda: get_l1_cache(),
+    _num_warps=lambda: 2,
 )
 def AvgPoolCeilStats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
@@ -61,8 +61,8 @@ def AvgPoolCeilStats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: Configu
 
 
 @configure(
-    _l1_cache_bytes=lambda args: get_l1_cache(),
-    _num_warps=lambda args: 4
+    _l1_cache_bytes=lambda: get_l1_cache(),
+    _num_warps=lambda: 4
 )
 def AvgPoolCeilStatsBackward(inpgrad, meangrad, sqmeangrad, output, outgrad_shape, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     MAX_SIZE = _l1_cache_bytes // inpgrad.element_size()  # 32768 for fp16

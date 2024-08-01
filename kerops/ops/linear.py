@@ -19,9 +19,9 @@ def configure_linear(in_channels):
     return HARDCODED_CONFIG.get(in_channels, None)
 
 @configure(
-    _num_warps=lambda args: configure_linear(args[1].shape[0])[0][0],
-    D_block=lambda args: configure_linear(args[1].shape[0])[0][1],
-    _ILP=lambda args: configure_linear(args[1].shape[0])[0][2],
+    _num_warps=lambda weight: configure_linear(weight.shape[0])[0][0],
+    D_block=lambda weight: configure_linear(weight.shape[0])[0][1],
+    _ILP=lambda weight: configure_linear(weight.shape[0])[0][2],
 )
 def ReLULinearAdd(
     x,
@@ -72,9 +72,9 @@ def ReLULinearAdd(
 
 
 @configure(
-    _num_warps=lambda args: configure_linear(args[2].shape[0])[1][0],
-    D_block=lambda args: configure_linear(args[2].shape[0])[1][1],
-    _ILP=lambda args: configure_linear(args[2].shape[0])[1][2],
+    _num_warps=lambda weight: configure_linear(weight.shape[0])[1][0],
+    D_block=lambda weight: configure_linear(weight.shape[0])[1][1],
+    _ILP=lambda weight: configure_linear(weight.shape[0])[1][2],
 )
 def ReLULinearBackward(
     input,

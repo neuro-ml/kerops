@@ -33,9 +33,9 @@ def configure_dwconv(channels):
 
 
 @configure(
-    ACCTYPE=lambda args: 'float32',
-    _num_warps=lambda args: configure_dwconv(args[1].shape[-1])[0][0],
-    D_block=lambda args: configure_dwconv(args[1].shape[-1])[0][1],
+    ACCTYPE=lambda: 'float32',
+    _num_warps=lambda weight: configure_dwconv(weight.shape[-1])[0][0],
+    D_block=lambda weight: configure_dwconv(weight.shape[-1])[0][1],
 )
 def DWConv(x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32):
     channels = x.shape[1]
@@ -79,9 +79,9 @@ def DWConv(x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: Confi
 
 
 @configure(
-    _num_warps=lambda args: configure_dwconv(args[0].shape[1])[1][0],
-    ACCTYPE=lambda args: 'float32',
-    D_block=lambda args: configure_dwconv(args[0].shape[1])[1][1],
+    _num_warps=lambda x: configure_dwconv(x.shape[1])[1][0],
+    ACCTYPE=lambda: 'float32',
+    D_block=lambda x: configure_dwconv(x.shape[1])[1][1],
 )
 def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg=2, D_block: ConfigurableArg = 32):
     channels = x.shape[1]
