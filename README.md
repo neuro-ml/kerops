@@ -1,2 +1,2 @@
 # kerops
-Efficient operations on GPU
+Efficient and fast algorithms on the GPU

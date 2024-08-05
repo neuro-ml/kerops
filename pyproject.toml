@@ -1,0 +1,30 @@
+[build-system]
+requires = ['setuptools>=43.0.0', 'wheel']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'kerops'
+readme = 'README.md'
+description = "Efficient gpu algorithms for 3D computer vision"
+requires-python = '>=3.10'
+authors = [
+    {name='AnihilatorGun', email='nikitaushakov.nu35@gmail.com'}
+]
+dynamic = ['version']
+
+[tool.black]
+line-length = 120
+skip-string-normalization = true
+
+[tool.isort]
+line_length = 120
+lines_after_imports = 2
+profile = 'black'
+combine_as_imports = true
+
+[tool.setuptools.packages.find]
+include = ['kerops']
+
+[tool.setuptools.dynamic]
+version = { attr = 'kerops.__version__.__version__' }
+dependencies = { file = ['requirements.txt'] }
