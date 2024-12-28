@@ -5,7 +5,7 @@ class ConfigurableArg:
     pass
 
 
-def check_function_signature(signature):
+def validate_signature(signature):
     for param in signature.parameters.values():
         if param.annotation is ConfigurableArg and param.kind is not Parameter.KEYWORD_ONLY:
             raise RuntimeError(f'ConfigurableArg must be keyword-only - {param.name}')
@@ -13,11 +13,11 @@ def check_function_signature(signature):
             raise RuntimeError(f'non-ConfigurableArg must not be keyword-only - {param.name}')
 
 
-def get_configurable_args_from_signature(signature):
+def get_config_args(signature):
     return [param.name for param in signature.parameters.values() if param.annotation is ConfigurableArg]
 
 
-def get_usual_args_from_signature(signature):
+def get_standard_args(signature):
     return [
         param.name
         for param in signature.parameters.values()
@@ -25,6 +25,6 @@ def get_usual_args_from_signature(signature):
     ]
 
 
-def is_configurators_fit(configurable_args, configurators_names):
+def configs_match(configurable_args, configurators_names):
     if set(configurable_args) != set(configurators_names):
         raise RuntimeError(f'Configuration mismatch, {configurable_args=}, {configurators_names=}')

@@ -2,12 +2,7 @@ import inspect
 from functools import wraps
 from typing import Callable
 
-from .utils import (
-    check_function_signature,
-    get_configurable_args_from_signature,
-    get_usual_args_from_signature,
-    is_configurators_fit,
-)
+from .utils import configs_match, get_config_args, get_standard_args, validate_signature
 
 
 class EmptyKwarg:
@@ -52,7 +47,7 @@ class ConfiguredFunction:
         return self.origin_function(*bind.args, **configured_kwargs)
 
     def reconfigure(self, **new_configurators):
-        is_configurators_fit(self.configurable_args, new_configurators.keys())
+        configs_match(self.configurable_args, new_configurators.keys())
         self.configurators = new_configurators
 
 
@@ -60,13 +55,13 @@ def configure(**configurators):
     def wrapper(function):
         signature = inspect.signature(function)
 
-        check_function_signature(signature)
+        validate_signature(signature)
 
-        configurable_args = get_configurable_args_from_signature(signature)
+        configurable_args = get_config_args(signature)
 
-        usual_args = get_usual_args_from_signature(signature)
+        usual_args = get_standard_args(signature)
 
-        is_configurators_fit(configurable_args, configurators.keys())
+        configs_match(configurable_args, configurators.keys())
 
         return wraps(function)(ConfiguredFunction(function, signature, configurable_args, usual_args, **configurators))
 
