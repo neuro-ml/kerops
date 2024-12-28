@@ -4,7 +4,7 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.linear import _ReLULinearAdd, _ReLULinearAddBackward
-from ._settings import configure, ConfigurableArg
+from ._settings import ConfigurableArg, configure
 
 
 def configure_linear(in_channels):
@@ -29,9 +29,9 @@ def ReLULinearAdd(
     weight,
     add_other,
     *,
-    _num_warps: ConfigurableArg=2,
-    D_block: ConfigurableArg=16,
-    _ILP: ConfigurableArg=8,
+    _num_warps: ConfigurableArg = 2,
+    D_block: ConfigurableArg = 16,
+    _ILP: ConfigurableArg = 8,
 ):
     in_channels = x.shape[1]
     out_channels = weight.shape[1]
@@ -82,9 +82,9 @@ def ReLULinearBackward(
     grad,
     weight,
     *,
-    _num_warps: ConfigurableArg=8,
-    D_block: ConfigurableArg=32,
-    _ILP: ConfigurableArg=16,
+    _num_warps: ConfigurableArg = 8,
+    D_block: ConfigurableArg = 32,
+    _ILP: ConfigurableArg = 16,
 ):
     in_channels = weight.shape[0]
     out_channels = grad.shape[1]

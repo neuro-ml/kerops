@@ -4,7 +4,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ..kernels.dw_conv import _DWConv_cl3d_impl, _DWConv_wgrad_cl3d_impl
-from ._settings import configure, ConfigurableArg
+from ._settings import ConfigurableArg, configure
 
 
 def configure_dwconv(channels):
@@ -37,7 +37,9 @@ def configure_dwconv(channels):
     _num_warps=lambda weight: configure_dwconv(weight.shape[-1])[0][0],
     D_block=lambda weight: configure_dwconv(weight.shape[-1])[0][1],
 )
-def DWConv(x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32):
+def DWConv(
+    x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32
+):
     channels = x.shape[1]
 
     assert x.ndim == 5
@@ -83,7 +85,9 @@ def DWConv(x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: Confi
     _num_warps=lambda x: configure_dwconv(x.shape[1])[1][0],
     D_block=lambda x: configure_dwconv(x.shape[1])[1][1],
 )
-def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg=2, D_block: ConfigurableArg = 32):
+def DWConvWGRAD(
+    x, grad, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32
+):
     channels = x.shape[1]
 
     assert x.ndim == grad.ndim == 5

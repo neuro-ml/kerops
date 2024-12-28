@@ -5,13 +5,10 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.bnrelu import _ApplyBNReLU_cl3d_backward_impl, _ApplyBNReLU_cl3d_impl
-from ._settings import configure, get_l1_cache, ConfigurableArg
+from ._settings import ConfigurableArg, configure, get_l1_cache
 
 
-@configure(
-    _l1_cache_bytes=get_l1_cache,
-    _num_warps=8
-)
+@configure(_l1_cache_bytes=get_l1_cache, _num_warps=8)
 def ApplyBNReLU(x, weight, bias, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
@@ -44,10 +41,7 @@ def ApplyBNReLU(x, weight, bias, *, _l1_cache_bytes: ConfigurableArg, _num_warps
     return output
 
 
-@configure(
-    _l1_cache_bytes=get_l1_cache,
-    _num_warps=8
-)
+@configure(_l1_cache_bytes=get_l1_cache, _num_warps=8)
 def ApplyBNReLUBackward(x, weight, bias, grad, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()

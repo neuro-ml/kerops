@@ -36,9 +36,10 @@ def get_configurable_args_from_signature(signature):
     return [param.name for param in signature.parameters.values() if param.annotation is ConfigurableArg]
 
 
-def get_usual_args_from_signature(signature):    
+def get_usual_args_from_signature(signature):
     return [
-        param.name for param in signature.parameters.values() 
+        param.name
+        for param in signature.parameters.values()
         if param.kind is inspect.Parameter.POSITIONAL_ONLY or param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     ]
 
@@ -56,7 +57,6 @@ class ConfiguredFunction:
         self.usual_args = usual_args
         self.configurators = configurators
 
-
     @staticmethod
     def configurator_call(args, configurator, usual_args):
         if isinstance(configurator, Callable):
@@ -69,21 +69,20 @@ class ConfiguredFunction:
         else:
             return configurator
 
-
     def __call__(self, *args, **kwargs):
         tmp_kwargs = {**{arg: EmptyKwarg for arg in self.configurable_args}, **kwargs}
-        
+
         bind = self.signature.bind(*args, **tmp_kwargs)
         bind.apply_defaults()
 
         configured_kwargs = {
             k: self.configurator_call(bind.args, self.configurators[k], self.usual_args)
-            if input_v is EmptyKwarg else input_v 
+            if input_v is EmptyKwarg
+            else input_v
             for k, input_v in bind.kwargs.items()
         }
 
         return self.origin_function(*bind.args, **configured_kwargs)
-
 
     def reconfigure(self, **new_configurators):
         is_configurators_fit(self.configurable_args, new_configurators.keys())
@@ -93,7 +92,7 @@ class ConfiguredFunction:
 def configure(**configurators):
     def wrapper(function):
         signature = inspect.signature(function)
-        
+
         check_function_signature(signature)
 
         configurable_args = get_configurable_args_from_signature(signature)
@@ -103,4 +102,5 @@ def configure(**configurators):
         is_configurators_fit(configurable_args, configurators.keys())
 
         return wraps(function)(ConfiguredFunction(function, signature, configurable_args, usual_args, **configurators))
+
     return wrapper

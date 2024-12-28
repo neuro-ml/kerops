@@ -5,13 +5,10 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.stats import _Stats_cl3d_backward_impl, _Stats_cl3d_impl
-from ._settings import configure, get_l1_cache, ConfigurableArg
+from ._settings import ConfigurableArg, configure, get_l1_cache
 
 
-@configure(
-    _l1_cache_bytes=get_l1_cache,
-    _num_warps=4
-)
+@configure(_l1_cache_bytes=get_l1_cache, _num_warps=4)
 def Stats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
@@ -34,10 +31,7 @@ def Stats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     return mean, sqmean
 
 
-@configure(
-    _l1_cache_bytes=get_l1_cache,
-    _num_warps=4
-)
+@configure(_l1_cache_bytes=get_l1_cache, _num_warps=4)
 def StatsBackward(x, mean_grad, sqmean_grad, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
