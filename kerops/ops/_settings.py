@@ -76,9 +76,11 @@ class ConfiguredFunction:
         bind.apply_defaults()
 
         configured_kwargs = {
-            k: self.configurator_call(bind.args, self.configurators[k], self.usual_args)
-            if input_v is EmptyKwarg
-            else input_v
+            k: (
+                self.configurator_call(bind.args, self.configurators[k], self.usual_args)
+                if input_v is EmptyKwarg
+                else input_v
+            )
             for k, input_v in bind.kwargs.items()
         }
 

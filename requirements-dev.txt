@@ -1,7 +1,7 @@
 matplotlib
 seaborn
 
-black<23.0.0
+black
 flake8
 flake8-tidy-imports
 flake8-quotes
