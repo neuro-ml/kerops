@@ -9,8 +9,8 @@ from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
 @configure(
-    _l1_cache_bytes=lambda: get_l1_cache(),
-    _num_warps=lambda: 8
+    _l1_cache_bytes=get_l1_cache,
+    _num_warps=8
 )
 def ApplyBNReLU(x, weight, bias, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
@@ -45,8 +45,8 @@ def ApplyBNReLU(x, weight, bias, *, _l1_cache_bytes: ConfigurableArg, _num_warps
 
 
 @configure(
-    _l1_cache_bytes=lambda: get_l1_cache(),
-    _num_warps=lambda: 8
+    _l1_cache_bytes=get_l1_cache,
+    _num_warps=8
 )
 def ApplyBNReLUBackward(x, weight, bias, grad, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]

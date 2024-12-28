@@ -6,12 +6,9 @@ from ..kernels.quantization import _DequantUint8Window_impl, _QuantUint8Window_i
 from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
-__all__ = ['QuantUint8Window', 'DequantUint8Window']
-
-
 @configure(
-    _num_warps=lambda: 4,
-    _l1_cache_bytes=lambda: get_l1_cache()
+    _num_warps=4,
+    _l1_cache_bytes=get_l1_cache
 )
 def QuantUint8Window(x, window, *, _num_warps: ConfigurableArg, _l1_cache_bytes: ConfigurableArg):
     numel = x.numel()
@@ -27,8 +24,8 @@ def QuantUint8Window(x, window, *, _num_warps: ConfigurableArg, _l1_cache_bytes:
 
 
 @configure(
-    _num_warps=lambda: 4,
-    _l1_cache_bytes=lambda: get_l1_cache()
+    _num_warps=4,
+    _l1_cache_bytes=get_l1_cache
 )
 def DequantUint8Window(x, init_dtype, window, _num_warps: ConfigurableArg, _l1_cache_bytes: ConfigurableArg):
     numel = x.numel()

@@ -18,6 +18,7 @@ def configure_linear(in_channels):
 
     return HARDCODED_CONFIG.get(in_channels, None)
 
+
 @configure(
     _num_warps=lambda weight: configure_linear(weight.shape[0])[0][0],
     D_block=lambda weight: configure_linear(weight.shape[0])[0][1],

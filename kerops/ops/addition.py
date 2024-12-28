@@ -9,8 +9,8 @@ from ._settings import configure, get_l1_cache, ConfigurableArg
 
 
 @configure(
-    _l1_cache_bytes=lambda: get_l1_cache(),
-    _num_warps=lambda: 8
+    _l1_cache_bytes=get_l1_cache,
+    _num_warps=8
 )
 def AddStats(x, y, inplace=False, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = x.shape[1]
@@ -53,8 +53,8 @@ def AddStats(x, y, inplace=False, *, _l1_cache_bytes: ConfigurableArg, _num_warp
 
 
 @configure(
-    _l1_cache_bytes=lambda: get_l1_cache(),
-    _num_warps=lambda: 8
+    _l1_cache_bytes=get_l1_cache,
+    _num_warps=8
 )
 def AddStatsBackward(add_grad, mean_grad, sqmean_grad, add_result, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     num_channels = add_grad.shape[1]
