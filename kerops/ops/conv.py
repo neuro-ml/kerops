@@ -7,35 +7,26 @@ from ..kernels.dw_conv import _DWConv_cl3d_impl, _DWConv_wgrad_cl3d_impl
 from ._settings import ConfigurableArg, configure
 
 
-def configure_dwconv(channels):
-    """
-    Hardcoded, benchmarked on RTX 3090, mb should be generated automatically
-    H, W, D = [350, 350, 128]
+def dwconv_warps(channels):
+    return {8: 1, 16: 2, 32: 2, 64: 2, 128: 4}[channels]
 
-    channels: [[num_warps, D_block], [num_warps, D_block]]  one for fwd another for bwd
-    """
 
-    """
-    TODO
-    More geeky solution is to compare performances with respect to splitting axis D
-    to N * D_block with padding
-    """
+def dwconv_dblock(channels):
+    return {8: 32, 16: 32, 32: 16, 64: 8, 128: 8}[channels]
 
-    HARDCODED_CONFIG = {
-        8: [[1, 32], [1, 32]],
-        16: [[2, 32], [1, 32]],
-        32: [[2, 16], [1, 32]],
-        64: [[2, 8], [1, 16]],
-        128: [[4, 8], [2, 16]],
-    }
 
-    return HARDCODED_CONFIG.get(channels, None)
+def dwconv_wgrad_warps(channels):
+    return {8: 1, 16: 1, 32: 1, 64: 1, 128: 2}[channels]
+
+
+def dwconv_wgrad_dblock(channels):
+    return {8: 32, 16: 32, 32: 32, 64: 16, 128: 16}[channels]
 
 
 @configure(
     ACCTYPE='float32',
-    _num_warps=lambda weight: configure_dwconv(weight.shape[-1])[0][0],
-    D_block=lambda weight: configure_dwconv(weight.shape[-1])[0][1],
+    _num_warps=lambda x: dwconv_warps(x.shape[1]),
+    D_block=lambda x: dwconv_dblock(x.shape[1]),
 )
 def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg):
     channels = x.shape[1]
@@ -80,8 +71,8 @@ def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, 
 
 @configure(
     ACCTYPE='float32',
-    _num_warps=lambda x: configure_dwconv(x.shape[1])[1][0],
-    D_block=lambda x: configure_dwconv(x.shape[1])[1][1],
+    _num_warps=lambda x: dwconv_wgrad_warps(x.shape[1]),
+    D_block=lambda x: dwconv_wgrad_dblock(x.shape[1]),
 )
 def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg):
     channels = x.shape[1]
