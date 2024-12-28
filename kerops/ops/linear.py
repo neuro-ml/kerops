@@ -4,7 +4,7 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.linear import _ReLULinearAdd, _ReLULinearAddBackward
-from ._settings import ConfigurableArg, configure
+from ..settings import ConfigurableArg, configure
 
 
 def fwd_warps(in_channels):

@@ -3,7 +3,7 @@ from math import ceil, floor, log2
 import torch
 
 from ..kernels.quantization import _DequantUint8Window_impl, _QuantUint8Window_impl
-from ._settings import ConfigurableArg, configure, get_l1_cache
+from ..settings import ConfigurableArg, configure, get_l1_cache
 
 
 @configure(_num_warps=4, _l1_cache_bytes=get_l1_cache)

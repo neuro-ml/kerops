@@ -4,7 +4,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ..kernels.dw_conv import _DWConv_cl3d_impl, _DWConv_wgrad_cl3d_impl
-from ._settings import ConfigurableArg, configure
+from ..settings import ConfigurableArg, configure
 
 
 def dwconv_warps(channels):

@@ -5,7 +5,7 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.bnrelu import _ApplyBNReLU_cl3d_backward_impl, _ApplyBNReLU_cl3d_impl
-from ._settings import ConfigurableArg, configure, get_l1_cache
+from ..settings import ConfigurableArg, configure, get_l1_cache
 
 
 @configure(_l1_cache_bytes=get_l1_cache, _num_warps=8)
