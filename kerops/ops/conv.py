@@ -37,9 +37,7 @@ def configure_dwconv(channels):
     _num_warps=lambda weight: configure_dwconv(weight.shape[-1])[0][0],
     D_block=lambda weight: configure_dwconv(weight.shape[-1])[0][1],
 )
-def DWConv(
-    x, weight, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32
-):
+def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg):
     channels = x.shape[1]
 
     assert x.ndim == 5
@@ -85,9 +83,7 @@ def DWConv(
     _num_warps=lambda x: configure_dwconv(x.shape[1])[1][0],
     D_block=lambda x: configure_dwconv(x.shape[1])[1][1],
 )
-def DWConvWGRAD(
-    x, grad, *, ACCTYPE: ConfigurableArg = 'float32', _num_warps: ConfigurableArg = 2, D_block: ConfigurableArg = 32
-):
+def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg):
     channels = x.shape[1]
 
     assert x.ndim == grad.ndim == 5
