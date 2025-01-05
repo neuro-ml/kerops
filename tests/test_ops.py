@@ -27,17 +27,17 @@ def bsize(request):
     return request.param
 
 
-@pytest.fixture(params=[2, 3, 7, 13, 16, 32, 37, 53, 111, 128])
+@pytest.fixture(params=[1, 2, 3, 7, 13, 16, 32, 37, 53, 111, 128])
 def other_1(request):
     return request.param
 
 
-@pytest.fixture(params=[2, 3, 7, 13, 16, 32, 37, 53, 111, 128])
+@pytest.fixture(params=[1, 2, 3, 7, 13, 16, 32, 37, 53, 111, 128])
 def other_2(request):
     return request.param
 
 
-@pytest.fixture(params=[2, 3, 7, 13, 16, 32, 37, 53, 111, 128])
+@pytest.fixture(params=[1, 2, 3, 7, 13, 16, 32, 37, 53, 111, 128])
 def other_3(request):
     return request.param
 

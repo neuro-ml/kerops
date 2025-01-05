@@ -157,17 +157,17 @@ def _DWConv_wgrad_cl3d_impl(
     channels: tl.constexpr,
     D_block: tl.constexpr,
     WD_grid,
+    D_grid,
+    delta_H_grid,
+    ILP: tl.constexpr,
 ):
     H_cell = tl.program_id(0)
-    W_D_cell = tl.program_id(1)
-
-    D_gridsize = tl.cdiv(D, D_block)
-    W_cell = W_D_cell // D_gridsize
-    D_cell = W_D_cell % D_gridsize
+    W_cell = tl.program_id(1)
+    D_cell = tl.program_id(2)
 
     input_ptr += D_cell * D_block * channels
     grad_ptr += D_cell * D_block * channels
-    weight_grad_ptr += (H_cell * WD_grid + W_D_cell) * 27 * channels
+    weight_grad_ptr += (H_cell * WD_grid + W_cell * D_grid + D_cell) * 27 * channels
 
     channels_offset = tl.arange(0, channels)
     channels_offset = tl.max_contiguous(tl.multiple_of(channels_offset, channels), channels)
@@ -179,11 +179,8 @@ def _DWConv_wgrad_cl3d_impl(
     mask = mask and (d_offset[None, None, :] + near_offset[:, None, None] >= 0 - D_block * D_cell)
     mask = mask and (near_offset[:, None, None] != 2)
 
-    in_offset = d_offset[None, None, :] * channels + channels_offset[None, :, None]
-    in_mask = d_offset[None, None, :] < D - D_block * D_cell
-
-    H1_load = 2 * H_cell + 1 < H
-    W1_load = 2 * W_cell + 1 < W
+    in_offset = d_offset[None, :] * channels + channels_offset[:, None]
+    in_mask = d_offset[None, :] < D - D_block * D_cell
 
     h0_w0 = tl.zeros([4, channels], dtype=ACCTYPE)
     h0_w1 = tl.zeros([4, channels], dtype=ACCTYPE)
@@ -195,91 +192,91 @@ def _DWConv_wgrad_cl3d_impl(
     h2_w1 = tl.zeros([4, channels], dtype=ACCTYPE)
     h2_w2 = tl.zeros([4, channels], dtype=ACCTYPE)
 
-    tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + 2 * W_cell * W_stride
-    x_h0_w0 = tl.load(tmp_input_ptr + in_offset, mask=in_mask, other=0.0)
-
-    tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + 2 * W_cell * W_stride
-    x_h1_w0 = tl.load(tmp_input_ptr + in_offset, mask=in_mask and H1_load, other=0.0)
-
-    tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + (2 * W_cell + 1) * W_stride
-    x_h0_w1 = tl.load(tmp_input_ptr + in_offset, mask=in_mask and W1_load, other=0.0)
-
-    tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell + 1) * W_stride
-    x_h1_w1 = tl.load(tmp_input_ptr + in_offset, mask=in_mask and (W1_load and H1_load), other=0.0)
-
     gradw_offset = tl.arange(0, 4)[:, None] * channels + channels_offset[None, :]
     gradw_mask = near_offset[:, None] != 2
 
-    load_next = (2 * H_cell - 1 < H and 2 * H_cell - 1 >= 0) and (2 * W_cell - 1 < W and 2 * W_cell - 1 >= 0)
-    tmp_grad_ptr = grad_ptr + (2 * H_cell - 1) * H_stride + (2 * W_cell - 1) * W_stride
-    i = -1
-    j = -1
-    grad = tl.zeros([4, channels, D_block], dtype=tl.float16)
-    if load_next:
-        grad = tl.load(tmp_grad_ptr + offset, mask=mask)
+    for ilp in tl.static_range(0, ILP):
+        H0_load = 2 * H_cell < H
+        H1_load = 2 * H_cell + 1 < H
+        W1_load = 2 * W_cell + 1 < W
+        
+        tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + 2 * W_cell * W_stride
+        x_h0_w0 = tl.load(tmp_input_ptr + offset, mask=mask and H0_load)
+        
+        tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + 2 * W_cell * W_stride
+        x_h1_w0 = tl.load(tmp_input_ptr + offset, mask=mask and H1_load)
+        
+        tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + (2 * W_cell + 1) * W_stride
+        x_h0_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H0_load))
+        
+        tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell + 1) * W_stride
+        x_h1_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H1_load))
 
-    for k in tl.static_range(0, 16):
-        if load_next:
-            if i == -1 and j == -1:
-                h2_w2 += tl.sum(grad * x_h0_w0, axis=2)
-            elif i == -1 and j == 0:
-                h2_w1 += tl.sum(grad * x_h0_w0, axis=2)
-                h2_w2 += tl.sum(grad * x_h0_w1, axis=2)
-            elif i == -1 and j == 1:
-                h2_w0 += tl.sum(grad * x_h0_w0, axis=2)
-                h2_w1 += tl.sum(grad * x_h0_w1, axis=2)
-            elif i == -1 and j == 2:
-                h2_w0 += tl.sum(grad * x_h0_w1, axis=2)
-            elif i == 0 and j == -1:
-                h1_w2 += tl.sum(grad * x_h0_w0, axis=2)
-                h2_w2 += tl.sum(grad * x_h1_w0, axis=2)
-            elif i == 0 and j == 0:
-                h1_w1 += tl.sum(grad * x_h0_w0, axis=2)
-                h2_w1 += tl.sum(grad * x_h1_w0, axis=2)
-                h1_w2 += tl.sum(grad * x_h0_w1, axis=2)
-                h2_w2 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 0 and j == 1:
-                h1_w0 += tl.sum(grad * x_h0_w0, axis=2)
-                h2_w0 += tl.sum(grad * x_h1_w0, axis=2)
-                h1_w1 += tl.sum(grad * x_h0_w1, axis=2)
-                h2_w1 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 0 and j == 2:
-                h1_w0 += tl.sum(grad * x_h0_w1, axis=2)
-                h2_w0 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 1 and j == -1:
-                h0_w2 += tl.sum(grad * x_h0_w0, axis=2)
-                h1_w2 += tl.sum(grad * x_h1_w0, axis=2)
-            elif i == 1 and j == 0:
-                h0_w1 += tl.sum(grad * x_h0_w0, axis=2)
-                h1_w1 += tl.sum(grad * x_h1_w0, axis=2)
-                h0_w2 += tl.sum(grad * x_h0_w1, axis=2)
-                h1_w2 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 1 and j == 1:
-                h0_w0 += tl.sum(grad * x_h0_w0, axis=2)
-                h1_w0 += tl.sum(grad * x_h1_w0, axis=2)
-                h0_w1 += tl.sum(grad * x_h0_w1, axis=2)
-                h1_w1 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 1 and j == 2:
-                h0_w0 += tl.sum(grad * x_h0_w1, axis=2)
-                h1_w0 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 2 and j == -1:
-                h0_w2 += tl.sum(grad * x_h1_w0, axis=2)
-            elif i == 2 and j == 0:
-                h0_w1 += tl.sum(grad * x_h1_w0, axis=2)
-                h0_w2 += tl.sum(grad * x_h1_w1, axis=2)
-            elif i == 2 and j == 1:
-                h0_w0 += tl.sum(grad * x_h1_w0, axis=2)
-                h0_w1 += tl.sum(grad * x_h1_w1, axis=2)
-            else:
-                h0_w0 += tl.sum(grad * x_h1_w1, axis=2)
+        #grad = tl.zeros([channels, D_block], dtype=tl.float16)[None]
+    
+        for k in tl.static_range(0, 16):
+            i = (k % 4) - 1
+            j = (k // 4) - 1
+            load_next = (2 * H_cell + i < H and 2 * H_cell + i >= 0) and (2 * W_cell + j < W and 2 * W_cell + j >= 0)
+            tmp_grad_ptr = grad_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride                
 
-        k_ = k + 1
-        i = (k_ % 4) - 1
-        j = (k_ // 4) - 1
-        load_next = (2 * H_cell + i < H and 2 * H_cell + i >= 0) and (2 * W_cell + j < W and 2 * W_cell + j >= 0)
-        tmp_grad_ptr = grad_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride
-        if load_next and k_ < 16:
-            grad = tl.load(tmp_grad_ptr + offset, mask=mask)  # , other=0.)
+            if load_next:
+                grad = tl.load(tmp_grad_ptr + in_offset, mask=in_mask, other=0.)[None]
+                
+                if i == -1 and j == -1:
+                    h2_w2 += tl.sum(grad * x_h0_w0, axis=2)
+                elif i == -1 and j == 0:
+                    h2_w1 += tl.sum(grad * x_h0_w0, axis=2)
+                    h2_w2 += tl.sum(grad * x_h0_w1, axis=2)
+                elif i == -1 and j == 1:
+                    h2_w0 += tl.sum(grad * x_h0_w0, axis=2)
+                    h2_w1 += tl.sum(grad * x_h0_w1, axis=2)
+                elif i == -1 and j == 2:
+                    h2_w0 += tl.sum(grad * x_h0_w1, axis=2)
+                elif i == 0 and j == -1:
+                    h1_w2 += tl.sum(grad * x_h0_w0, axis=2)
+                    h2_w2 += tl.sum(grad * x_h1_w0, axis=2)
+                elif i == 0 and j == 0:
+                    h1_w1 += tl.sum(grad * x_h0_w0, axis=2)
+                    h2_w1 += tl.sum(grad * x_h1_w0, axis=2)
+                    h1_w2 += tl.sum(grad * x_h0_w1, axis=2)
+                    h2_w2 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 0 and j == 1:
+                    h1_w0 += tl.sum(grad * x_h0_w0, axis=2)
+                    h2_w0 += tl.sum(grad * x_h1_w0, axis=2)
+                    h1_w1 += tl.sum(grad * x_h0_w1, axis=2)
+                    h2_w1 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 0 and j == 2:
+                    h1_w0 += tl.sum(grad * x_h0_w1, axis=2)
+                    h2_w0 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 1 and j == -1:
+                    h0_w2 += tl.sum(grad * x_h0_w0, axis=2)
+                    h1_w2 += tl.sum(grad * x_h1_w0, axis=2)
+                elif i == 1 and j == 0:
+                    h0_w1 += tl.sum(grad * x_h0_w0, axis=2)
+                    h1_w1 += tl.sum(grad * x_h1_w0, axis=2)
+                    h0_w2 += tl.sum(grad * x_h0_w1, axis=2)
+                    h1_w2 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 1 and j == 1:
+                    h0_w0 += tl.sum(grad * x_h0_w0, axis=2)
+                    h1_w0 += tl.sum(grad * x_h1_w0, axis=2)
+                    h0_w1 += tl.sum(grad * x_h0_w1, axis=2)
+                    h1_w1 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 1 and j == 2:
+                    h0_w0 += tl.sum(grad * x_h0_w1, axis=2)
+                    h1_w0 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 2 and j == -1:
+                    h0_w2 += tl.sum(grad * x_h1_w0, axis=2)
+                elif i == 2 and j == 0:
+                    h0_w1 += tl.sum(grad * x_h1_w0, axis=2)
+                    h0_w2 += tl.sum(grad * x_h1_w1, axis=2)
+                elif i == 2 and j == 1:
+                    h0_w0 += tl.sum(grad * x_h1_w0, axis=2)
+                    h0_w1 += tl.sum(grad * x_h1_w1, axis=2)
+                else:
+                    h0_w0 += tl.sum(grad * x_h1_w1, axis=2)
+
+        H_cell += delta_H_grid
 
     tl.store(weight_grad_ptr + gradw_offset, h0_w0, mask=gradw_mask)
     tl.store((weight_grad_ptr + 3 * channels) + gradw_offset, h0_w1, mask=gradw_mask)

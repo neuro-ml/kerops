@@ -20,7 +20,11 @@ def dwconv_wgrad_warps(channels):
 
 
 def dwconv_wgrad_dblock(channels):
-    return {8: 32, 16: 32, 32: 32, 64: 16, 128: 16}[channels]
+    return {8: 32, 16: 32, 32: 16, 64: 8, 128: 8}[channels]
+
+
+def dwconv_wgrad_ilp(channels):
+    return {8: 1, 16: 1, 32: 2, 64: 3, 128: 3}[channels]
 
 
 @configure(
@@ -73,8 +77,9 @@ def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, 
     ACCTYPE='float32',
     _num_warps=lambda x: dwconv_wgrad_warps(x.shape[1]),
     D_block=lambda x: dwconv_wgrad_dblock(x.shape[1]),
+    ILP=lambda x: dwconv_wgrad_ilp(x.shape[1])
 )
-def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg):
+def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg, ILP: ConfigurableArg):
     channels = x.shape[1]
 
     assert x.ndim == grad.ndim == 5
@@ -90,10 +95,10 @@ def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableAr
     bsize, _, H, W, D = x.shape
     batch_stride, _, H_stride, W_stride, _ = x.stride()
 
-    H_grid = ceil(H / 2)
+    H_grid = ceil(H / (2 * ILP))
     W_grid = ceil(W / 2)
     D_grid = ceil(D / D_block)
-    grid = (H_grid, W_grid * D_grid)
+    grid = (H_grid, W_grid, D_grid)
 
     grad_w = torch.zeros([bsize, H_grid * W_grid * D_grid, 3, 3, 3, channels], device=x.device, dtype=torch.float16)
     WD_grid = W_grid * D_grid  # TODO: mb implement in another way
@@ -112,9 +117,12 @@ def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableAr
             channels,
             D_block,
             WD_grid,
+            D_grid,
+            H_grid,
+            ILP,
             num_warps=_num_warps,
         )
 
-    grad_w = torch.flip(grad_w.sum(dim=(0, 1)), dims=(2,))
+    grad_w = grad_w.sum(dim=(0, 1))
 
     return grad_w
