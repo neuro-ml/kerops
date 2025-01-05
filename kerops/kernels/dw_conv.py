@@ -28,13 +28,13 @@ def _DWConv_cl3d_impl(
     d_offset = tl.arange(0, D_block)
     near_offset = tl.arange(0, 4) - 1
 
-    offset = d_offset[:, None, None] * channels + channels_offset[None, :, None] + near_offset[None, None, :] * channels
-    mask = d_offset[:, None, None] + near_offset[None, None, :] < D - D_block * D_cell
-    mask = mask and (d_offset[:, None, None] + near_offset[None, None, :] >= 0 - D_block * D_cell)
-    mask = mask and (near_offset[None, None, :] != 2)
+    offset = d_offset[:, None, None] * channels + channels_offset[None, None, :] + near_offset[None, :, None] * channels
+    mask = d_offset[:, None, None] + near_offset[None, :, None] < D - D_block * D_cell
+    mask = mask and (d_offset[:, None, None] + near_offset[None, :, None] >= 0 - D_block * D_cell)
+    mask = mask and (near_offset[None, :, None] != 2)
 
-    weight_offset = channels_offset[None, :, None] + tl.arange(0, 4)[None, None, :] * channels
-    weight_mask = tl.arange(0, 4)[None, None, :] != 3
+    weight_offset = channels_offset[None, None, :] + tl.arange(0, 4)[None, :, None] * channels
+    weight_mask = tl.arange(0, 4)[None, :, None] != 3
 
     weight_h0_w0 = tl.load(weight_ptr + weight_offset, mask=weight_mask, other=0.0)
     weight_h0_w1 = tl.load((weight_ptr + 3 * channels) + weight_offset, mask=weight_mask, other=0.0)
@@ -68,57 +68,57 @@ def _DWConv_cl3d_impl(
 
     for k in tl.static_range(0, 16):
         if k == 0:
-            h0_w0 += tl.sum(x * weight_h0_w0, axis=2)
+            h0_w0 += tl.sum(x * weight_h0_w0, axis=1)
         elif k == 1:
-            h0_w0 += tl.sum(x * weight_h1_w0, axis=2)
-            h1_w0 += tl.sum(x * weight_h0_w0, axis=2)
+            h0_w0 += tl.sum(x * weight_h1_w0, axis=1)
+            h1_w0 += tl.sum(x * weight_h0_w0, axis=1)
         elif k == 2:
-            h0_w0 += tl.sum(x * weight_h2_w0, axis=2)
-            h1_w0 += tl.sum(x * weight_h1_w0, axis=2)
+            h0_w0 += tl.sum(x * weight_h2_w0, axis=1)
+            h1_w0 += tl.sum(x * weight_h1_w0, axis=1)
         elif k == 3:
-            h1_w0 += tl.sum(x * weight_h2_w0, axis=2)
+            h1_w0 += tl.sum(x * weight_h2_w0, axis=1)
         elif k == 4:
-            h0_w0 += tl.sum(x * weight_h0_w1, axis=2)
-            h0_w1 += tl.sum(x * weight_h0_w0, axis=2)
+            h0_w0 += tl.sum(x * weight_h0_w1, axis=1)
+            h0_w1 += tl.sum(x * weight_h0_w0, axis=1)
         elif k == 5:
-            h0_w0 += tl.sum(x * weight_h1_w1, axis=2)
-            h0_w1 += tl.sum(x * weight_h1_w0, axis=2)
-            h1_w0 += tl.sum(x * weight_h0_w1, axis=2)
-            h1_w1 += tl.sum(x * weight_h0_w0, axis=2)
+            h0_w0 += tl.sum(x * weight_h1_w1, axis=1)
+            h0_w1 += tl.sum(x * weight_h1_w0, axis=1)
+            h1_w0 += tl.sum(x * weight_h0_w1, axis=1)
+            h1_w1 += tl.sum(x * weight_h0_w0, axis=1)
         elif k == 6:
-            h0_w0 += tl.sum(x * weight_h2_w1, axis=2)
-            h0_w1 += tl.sum(x * weight_h2_w0, axis=2)
-            h1_w0 += tl.sum(x * weight_h1_w1, axis=2)
-            h1_w1 += tl.sum(x * weight_h1_w0, axis=2)
+            h0_w0 += tl.sum(x * weight_h2_w1, axis=1)
+            h0_w1 += tl.sum(x * weight_h2_w0, axis=1)
+            h1_w0 += tl.sum(x * weight_h1_w1, axis=1)
+            h1_w1 += tl.sum(x * weight_h1_w0, axis=1)
         elif k == 7:
-            h1_w0 += tl.sum(x * weight_h2_w1, axis=2)
-            h1_w1 += tl.sum(x * weight_h2_w0, axis=2)
+            h1_w0 += tl.sum(x * weight_h2_w1, axis=1)
+            h1_w1 += tl.sum(x * weight_h2_w0, axis=1)
         elif k == 8:
-            h0_w0 += tl.sum(x * weight_h0_w2, axis=2)
-            h0_w1 += tl.sum(x * weight_h0_w1, axis=2)
+            h0_w0 += tl.sum(x * weight_h0_w2, axis=1)
+            h0_w1 += tl.sum(x * weight_h0_w1, axis=1)
         elif k == 9:
-            h0_w0 += tl.sum(x * weight_h1_w2, axis=2)
-            h0_w1 += tl.sum(x * weight_h1_w1, axis=2)
-            h1_w0 += tl.sum(x * weight_h0_w2, axis=2)
-            h1_w1 += tl.sum(x * weight_h0_w1, axis=2)
+            h0_w0 += tl.sum(x * weight_h1_w2, axis=1)
+            h0_w1 += tl.sum(x * weight_h1_w1, axis=1)
+            h1_w0 += tl.sum(x * weight_h0_w2, axis=1)
+            h1_w1 += tl.sum(x * weight_h0_w1, axis=1)
         elif k == 10:
-            h0_w0 += tl.sum(x * weight_h2_w2, axis=2)
-            h0_w1 += tl.sum(x * weight_h2_w1, axis=2)
-            h1_w0 += tl.sum(x * weight_h1_w2, axis=2)
-            h1_w1 += tl.sum(x * weight_h1_w1, axis=2)
+            h0_w0 += tl.sum(x * weight_h2_w2, axis=1)
+            h0_w1 += tl.sum(x * weight_h2_w1, axis=1)
+            h1_w0 += tl.sum(x * weight_h1_w2, axis=1)
+            h1_w1 += tl.sum(x * weight_h1_w1, axis=1)
         elif k == 11:
-            h1_w0 += tl.sum(x * weight_h2_w2, axis=2)
-            h1_w1 += tl.sum(x * weight_h2_w1, axis=2)
+            h1_w0 += tl.sum(x * weight_h2_w2, axis=1)
+            h1_w1 += tl.sum(x * weight_h2_w1, axis=1)
         elif k == 12:
-            h0_w1 += tl.sum(x * weight_h0_w2, axis=2)
+            h0_w1 += tl.sum(x * weight_h0_w2, axis=1)
         elif k == 13:
-            h0_w1 += tl.sum(x * weight_h1_w2, axis=2)
-            h1_w1 += tl.sum(x * weight_h0_w2, axis=2)
+            h0_w1 += tl.sum(x * weight_h1_w2, axis=1)
+            h1_w1 += tl.sum(x * weight_h0_w2, axis=1)
         elif k == 14:
-            h0_w1 += tl.sum(x * weight_h2_w2, axis=2)
-            h1_w1 += tl.sum(x * weight_h1_w2, axis=2)
+            h0_w1 += tl.sum(x * weight_h2_w2, axis=1)
+            h1_w1 += tl.sum(x * weight_h1_w2, axis=1)
         else:
-            h1_w1 += tl.sum(x * weight_h2_w2, axis=2)
+            h1_w1 += tl.sum(x * weight_h2_w2, axis=1)
 
         k_ = k + 1
         i = (k_ % 4) - 1
