@@ -179,8 +179,8 @@ def _DWConv_wgrad_cl3d_impl(
     mask = mask and (d_offset[None, None, :] + near_offset[:, None, None] >= 0 - D_block * D_cell)
     mask = mask and (near_offset[:, None, None] != 2)
 
-    in_offset = d_offset[None, :] * channels + channels_offset[:, None]
-    in_mask = d_offset[None, :] < D - D_block * D_cell
+    grad_offset = d_offset[None, :] * channels + channels_offset[:, None]
+    grad_mask = d_offset[None, :] < D - D_block * D_cell
 
     h0_w0 = tl.zeros([4, channels], dtype=ACCTYPE)
     h0_w1 = tl.zeros([4, channels], dtype=ACCTYPE)
@@ -212,8 +212,6 @@ def _DWConv_wgrad_cl3d_impl(
         tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell + 1) * W_stride
         x_h1_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H1_load))
 
-        # grad = tl.zeros([channels, D_block], dtype=tl.float16)[None]
-
         for k in tl.static_range(0, 16):
             i = (k % 4) - 1
             j = (k // 4) - 1
@@ -221,7 +219,7 @@ def _DWConv_wgrad_cl3d_impl(
             tmp_grad_ptr = grad_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride
 
             if load_next:
-                grad = tl.load(tmp_grad_ptr + in_offset, mask=in_mask, other=0.0)[None]
+                grad = tl.load(tmp_grad_ptr + grad_offset, mask=grad_mask, other=0.0)[None]
 
                 if i == -1 and j == -1:
                     h2_w2 += tl.sum(grad * x_h0_w0, axis=2)
