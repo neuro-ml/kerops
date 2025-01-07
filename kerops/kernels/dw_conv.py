@@ -199,30 +199,30 @@ def _DWConv_wgrad_cl3d_impl(
         H0_load = 2 * H_cell < H
         H1_load = 2 * H_cell + 1 < H
         W1_load = 2 * W_cell + 1 < W
-        
+
         tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + 2 * W_cell * W_stride
         x_h0_w0 = tl.load(tmp_input_ptr + offset, mask=mask and H0_load)
-        
+
         tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + 2 * W_cell * W_stride
         x_h1_w0 = tl.load(tmp_input_ptr + offset, mask=mask and H1_load)
-        
+
         tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + (2 * W_cell + 1) * W_stride
         x_h0_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H0_load))
-        
+
         tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell + 1) * W_stride
         x_h1_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H1_load))
 
-        #grad = tl.zeros([channels, D_block], dtype=tl.float16)[None]
-    
+        # grad = tl.zeros([channels, D_block], dtype=tl.float16)[None]
+
         for k in tl.static_range(0, 16):
             i = (k % 4) - 1
             j = (k // 4) - 1
             load_next = (2 * H_cell + i < H and 2 * H_cell + i >= 0) and (2 * W_cell + j < W and 2 * W_cell + j >= 0)
-            tmp_grad_ptr = grad_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride                
+            tmp_grad_ptr = grad_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride
 
             if load_next:
-                grad = tl.load(tmp_grad_ptr + in_offset, mask=in_mask, other=0.)[None]
-                
+                grad = tl.load(tmp_grad_ptr + in_offset, mask=in_mask, other=0.0)[None]
+
                 if i == -1 and j == -1:
                     h2_w2 += tl.sum(grad * x_h0_w0, axis=2)
                 elif i == -1 and j == 0:

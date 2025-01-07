@@ -77,9 +77,11 @@ def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, 
     ACCTYPE='float32',
     _num_warps=lambda x: dwconv_wgrad_warps(x.shape[1]),
     D_block=lambda x: dwconv_wgrad_dblock(x.shape[1]),
-    ILP=lambda x: dwconv_wgrad_ilp(x.shape[1])
+    ILP=lambda x: dwconv_wgrad_ilp(x.shape[1]),
 )
-def DWConvWGRAD(x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg, ILP: ConfigurableArg):
+def DWConvWGRAD(
+    x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg, ILP: ConfigurableArg
+):
     channels = x.shape[1]
 
     assert x.ndim == grad.ndim == 5
