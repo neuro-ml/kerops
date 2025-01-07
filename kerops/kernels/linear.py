@@ -201,13 +201,21 @@ def _LinBReLULinBackward(
         grad = tl.load(grad_ptr + offset, mask=mask, other=0.0)  # [D_block, in_channels]
         gradT = tl.trans(grad)  # [in_channels, D_block]
 
-        linup = tl.dot(input, weight_up, out_dtype=tl.float32, allow_tf32=True).to(tl.float16) + bias  # [D_block, hidden_channels]
+        linup = (
+            tl.dot(input, weight_up, out_dtype=tl.float32, allow_tf32=True).to(tl.float16) + bias
+        )  # [D_block, hidden_channels]
         linup_relu = tl.maximum(linup, 0.0).to(tl.float16)  # [D_block, hidden_channels]
 
-        weight_down_grad += tl.dot(gradT, linup_relu, out_dtype=tl.float32, allow_tf32=True)  # [in_channels, hidden_channels]
+        weight_down_grad += tl.dot(
+            gradT, linup_relu, out_dtype=tl.float32, allow_tf32=True
+        )  # [in_channels, hidden_channels]
 
-        linup_gradT = tl.trans(linup > 0) * tl.dot(weight_down, gradT, out_dtype=tl.float32, allow_tf32=True).to(tl.float16)  # [hidden_channels, D_block]
-        weight_up_grad += tl.dot(linup_gradT, input, out_dtype=tl.float32, allow_tf32=True)  # [hidden_channels, in_channels]
+        linup_gradT = tl.trans(linup > 0) * tl.dot(weight_down, gradT, out_dtype=tl.float32, allow_tf32=True).to(
+            tl.float16
+        )  # [hidden_channels, D_block]
+        weight_up_grad += tl.dot(
+            linup_gradT, input, out_dtype=tl.float32, allow_tf32=True
+        )  # [hidden_channels, in_channels]
         bias_grad += tl.sum(linup_gradT, axis=1)
 
         input_gradT = tl.dot(weight_up, linup_gradT)

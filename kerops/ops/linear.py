@@ -3,7 +3,7 @@ from math import ceil
 import torch
 from triton import next_power_of_2
 
-from ..kernels.linear import _ReLULinearAdd, _ReLULinearAddBackward, _LinBReLULinAdd, _LinBReLULinBackward
+from ..kernels.linear import _LinBReLULinAdd, _LinBReLULinBackward, _ReLULinearAdd, _ReLULinearAddBackward
 from ..settings import ConfigurableArg, configure
 
 
@@ -143,9 +143,9 @@ def LinBReLULinAdd(
     bias,
     add_other,
     *,
-    _num_warps = 2,
-    D_block = 16,
-    _ILP = 8,
+    _num_warps=2,
+    D_block=16,
+    _ILP=8,
 ):
     in_channels = x.shape[1]
     hidden_channels = weight_up.shape[1]
@@ -156,7 +156,7 @@ def LinBReLULinAdd(
 
     assert x.ndim == add_other.ndim == 5
     assert list(x.shape) == list(add_other.shape)
-    
+
     assert in_channels == next_power_of_2(in_channels)
     assert list(weight_up.shape) == [in_channels, hidden_channels]
     assert list(weight_down.shape) == [hidden_channels, in_channels]
@@ -196,9 +196,9 @@ def LinBReLULinBackward(
     weight_down,
     bias,
     *,
-    _num_warps = 8,
-    D_block = 32,
-    _ILP = 16,
+    _num_warps=8,
+    D_block=32,
+    _ILP=16,
 ):
     in_channels = input.shape[1]
     hidden_channels = weight_up.shape[1]
