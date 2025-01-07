@@ -1,6 +1,3 @@
-matplotlib
-seaborn
-
 black
 flake8
 flake8-tidy-imports

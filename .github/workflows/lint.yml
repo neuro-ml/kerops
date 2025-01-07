@@ -1,0 +1,23 @@
+name: Lint
+
+on: [ pull_request ]
+
+env:
+  MODULE_NAME: kerops
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check python code style
+        run: |
+          pip install -r requirements-dev.txt
+          flake8 .
+          isort --check .
+          black --check .
