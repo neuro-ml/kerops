@@ -136,6 +136,11 @@ def ReLULinearBackward(
     return input_grad, weight_grad.sum(dim=0)
 
 
+@configure(
+    _num_warps=1,
+    D_block=lambda x: {16: 32, 32: 16, 64: 32}[x.shape[1]],
+    _ILP=lambda x: {16: 1, 32: 2, 64: 8}[x.shape[1]],
+)
 def LinBReLULinAdd(
     x,
     weight_up,
@@ -143,9 +148,9 @@ def LinBReLULinAdd(
     bias,
     add_other,
     *,
-    _num_warps=2,
-    D_block=16,
-    _ILP=8,
+    _num_warps: ConfigurableArg,
+    D_block: ConfigurableArg,
+    _ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
     hidden_channels = weight_up.shape[1]
