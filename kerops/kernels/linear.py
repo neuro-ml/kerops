@@ -132,8 +132,8 @@ def _LinBReLULinAdd(
     for i in tl.static_range(0, _ILP):
         mask = d_offset[:, None] < numel_no_channels - (pid * _ILP + i) * D_block
 
-        x = tl.load(input_ptr + offset, mask=mask)  # , other=0)
-        add = tl.load(add_ptr + offset, mask=mask)  # , other=0)
+        x = tl.load(input_ptr + offset, mask=mask)#, other=0)
+        add = tl.load(add_ptr + offset, mask=mask)#, other=0)
 
         hidden = tl.dot(x, weight_up, out_dtype=tl.float32, allow_tf32=True).to(tl.float16) + bias
         hidden = tl.maximum(hidden, 0.0).to(tl.float16)

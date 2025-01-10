@@ -17,7 +17,7 @@ def ilp(channels):
     _ILP=lambda x: ilp(x.shape[1]),
 )
 def LinBReLULinBackward(
-    input,
+    x,
     grad,
     weight_up,
     weight_down,
@@ -27,21 +27,21 @@ def LinBReLULinBackward(
     D_block: ConfigurableArg,
     _ILP: ConfigurableArg,
 ):
-    in_channels = input.shape[1]
+    in_channels = x.shape[1]
     hidden_channels = weight_up.shape[1]
     numel = grad.numel()
 
-    assert grad.ndim == input.ndim == 5
-    assert list(grad.shape) == list(input.shape)
+    assert grad.ndim == x.ndim == 5
+    assert list(grad.shape) == list(x.shape)
 
     assert in_channels == next_power_of_2(in_channels)
     assert in_channels * 2 == hidden_channels
     assert list(weight_up.shape) == [in_channels, hidden_channels]
     assert list(weight_down.shape) == [hidden_channels, in_channels]
     assert list(bias.shape) == [hidden_channels]
-    assert grad.dtype == input.dtype == weight_up.dtype == weight_down.dtype == bias.dtype == torch.float16
+    assert grad.dtype == x.dtype == weight_up.dtype == weight_down.dtype == bias.dtype == torch.float16
     assert grad.is_contiguous(memory_format=torch.channels_last_3d)
-    assert input.is_contiguous(memory_format=torch.channels_last_3d)
+    assert x.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
 
@@ -59,7 +59,7 @@ def LinBReLULinBackward(
     bias_grad = torch.zeros([grid_size, hidden_channels], dtype=torch.float32, device='cuda')
 
     _LinBReLULinBackward[(grid_size,)](
-        input,
+        x,
         grad,
         input_grad,
         weight_up,
