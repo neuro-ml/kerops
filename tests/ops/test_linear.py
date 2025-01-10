@@ -5,7 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from kerops.ops.linear import LinBReLULinAdd, LinBReLULinBackward, ReLULinearAdd, ReLULinearBackward
-from kerops.utils import allclose_two_stage
+from kerops.utils import allclose_two_stage, weight_grad_similarity
 
 
 def test_relu_linear_add(bsize, other_1, other_2, other_3, channels_out):
@@ -139,7 +139,7 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
     nn.init.kaiming_uniform_(weight_down, a=math.sqrt(5))
     weight_down.requires_grad_(True)
 
-    bias = torch.randn(2 * channels, dtype=torch.float16, device='cuda')
+    bias = torch.randn(2 * channels, dtype=torch.float32, device='cuda')
     bias.requires_grad_(True)
 
     input_grad, weight_up_grad, weight_down_grad, bias_grad = LinBReLULinBackward(
@@ -156,6 +156,36 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
         x_ = F.conv3d(x_, weight_down.permute(1, 0)[:, :, None, None, None], None, stride=1, padding=0)
 
     x_.backward(grad)
+
+    assert weight_grad_similarity(
+        weight_down.grad,
+        weight_down_grad,
+        rtol_cos=1e-4,
+        atol_cos=1e-4,
+        rtol_len=1e-3 * bsize,
+        atol_len=1e-3,
+        debug_info='print'
+    )
+
+    assert weight_grad_similarity(
+        weight_up.grad,
+        weight_up_grad,
+        rtol_cos=1e-4,
+        atol_cos=1e-4,
+        rtol_len=2e-3 * bsize,
+        atol_len=1e-3,
+        debug_info='print'
+    )
+
+    assert weight_grad_similarity(
+        weight_up.grad,
+        weight_up_grad,
+        rtol_cos=1e-3,
+        atol_cos=1e-3,
+        rtol_len=2e-3 * bsize,
+        atol_len=1e-3,
+        debug_info='print'
+    )
 
     allclose = allclose_two_stage(
         x.grad,
