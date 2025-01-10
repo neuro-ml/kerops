@@ -4,7 +4,7 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAddBackward
-from ...settings import ConfigurableArg, configure, confexc
+from ...settings import ConfigurableArg, confexc, configure
 
 
 @confexc(KeyError)
@@ -18,12 +18,12 @@ def dblock(in_channels):
 
 
 @configure(
-    _num_warps=lambda weight: warps(weight.shape[0]),
-    D_block=lambda weight: dblock(weight.shape[0]),
+    _num_warps=lambda x: warps(x.shape[1]),
+    D_block=lambda x: dblock(x.shape[1]),
     _ILP=16,
 )
 def ReLULinearBackward(
-    input,
+    x,
     grad,
     weight,
     *,
@@ -31,28 +31,26 @@ def ReLULinearBackward(
     D_block: ConfigurableArg,
     _ILP: ConfigurableArg,
 ):
-    in_channels = weight.shape[0]
+    in_channels = x.shape[1]
     out_channels = grad.shape[1]
     numel = grad.numel()
 
-    assert grad.ndim == input.ndim == 5
-    assert list(grad.shape[2:]) == list(input.shape[2:])
-    assert grad.shape[0] == input.shape[0]
-    assert grad.shape[1] == out_channels
-    assert input.shape[1] == in_channels
+    assert grad.ndim == x.ndim == 5
+    assert list(grad.shape[2:]) == list(x.shape[2:])
+    assert grad.shape[0] == x.shape[0]
     assert in_channels == next_power_of_2(in_channels)
     assert out_channels == next_power_of_2(out_channels)
     assert list(weight.shape) == [in_channels, out_channels]
-    assert grad.dtype == weight.dtype == torch.float16
+    assert x.dtype == grad.dtype == weight.dtype == torch.float16
+    assert x.is_contiguous(memory_format=torch.channels_last_3d)
     assert grad.is_contiguous(memory_format=torch.channels_last_3d)
-    assert input.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // out_channels
 
     grid_size = ceil(numel_no_channels / (D_block * _ILP))
 
     bsize, _, H, W, D = grad.shape
-    input_grad = torch.empty(
+    x_grad = torch.empty(
         [bsize, in_channels, H, W, D],
         dtype=grad.dtype,
         device=grad.device,
@@ -61,9 +59,9 @@ def ReLULinearBackward(
     weight_grad = torch.zeros([grid_size, in_channels, out_channels], dtype=torch.float16, device='cuda')
 
     _ReLULinearAddBackward[(grid_size,)](
-        input,
+        x,
         grad,
-        input_grad,
+        x_grad,
         weight,
         weight_grad,
         numel_no_channels,
@@ -74,4 +72,4 @@ def ReLULinearBackward(
         num_warps=_num_warps,
     )
 
-    return input_grad, weight_grad.sum(dim=0)
+    return x_grad, weight_grad.sum(dim=0)

@@ -4,7 +4,7 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _LinBReLULinAdd
-from ...settings import ConfigurableArg, configure, confexc
+from ...settings import ConfigurableArg, confexc, configure
 
 
 @confexc(KeyError)
@@ -34,15 +34,11 @@ def LinBReLULinAdd(
     _ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
-    hidden_channels = weight_up.shape[1]
+    hidden_channels = 2 * in_channels
     numel = x.numel()
-
-    assert in_channels >= 16
-    assert in_channels * 2 == hidden_channels
 
     assert x.ndim == add_other.ndim == 5
     assert list(x.shape) == list(add_other.shape)
-
     assert in_channels == next_power_of_2(in_channels)
     assert list(weight_up.shape) == [in_channels, hidden_channels]
     assert list(weight_down.shape) == [hidden_channels, in_channels]

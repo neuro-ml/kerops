@@ -4,7 +4,7 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _LinBReLULinBackward
-from ...settings import ConfigurableArg, configure, confexc
+from ...settings import ConfigurableArg, confexc, configure
 
 
 @confexc(KeyError)
@@ -29,27 +29,25 @@ def LinBReLULinBackward(
     _ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
-    hidden_channels = weight_up.shape[1]
+    hidden_channels = 2 * in_channels
     numel = grad.numel()
 
     assert grad.ndim == x.ndim == 5
-    assert list(grad.shape) == list(x.shape)
-
+    assert list(x.shape) == list(grad.shape)
     assert in_channels == next_power_of_2(in_channels)
-    assert in_channels * 2 == hidden_channels
     assert list(weight_up.shape) == [in_channels, hidden_channels]
     assert list(weight_down.shape) == [hidden_channels, in_channels]
     assert list(bias.shape) == [hidden_channels]
-    assert grad.dtype == x.dtype == weight_up.dtype == weight_down.dtype == bias.dtype == torch.float16
-    assert grad.is_contiguous(memory_format=torch.channels_last_3d)
+    assert x.dtype == grad.dtype == weight_up.dtype == weight_down.dtype == bias.dtype == torch.float16
     assert x.is_contiguous(memory_format=torch.channels_last_3d)
+    assert grad.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
 
     grid_size = ceil(numel_no_channels / (D_block * _ILP))
 
     bsize, _, H, W, D = grad.shape
-    input_grad = torch.empty(
+    x_grad = torch.empty(
         [bsize, in_channels, H, W, D],
         dtype=grad.dtype,
         device=grad.device,
@@ -62,7 +60,7 @@ def LinBReLULinBackward(
     _LinBReLULinBackward[(grid_size,)](
         x,
         grad,
-        input_grad,
+        x_grad,
         weight_up,
         weight_down,
         bias,
@@ -77,4 +75,4 @@ def LinBReLULinBackward(
         num_warps=_num_warps,
     )
 
-    return input_grad, weight_up_grad.sum(dim=0), weight_down_grad.sum(dim=0), bias_grad.sum(dim=0)
+    return x_grad, weight_up_grad.sum(dim=0), weight_down_grad.sum(dim=0), bias_grad.sum(dim=0)

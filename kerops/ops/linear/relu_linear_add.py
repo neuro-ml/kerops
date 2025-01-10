@@ -4,7 +4,7 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAdd
-from ...settings import ConfigurableArg, configure, confexc
+from ...settings import ConfigurableArg, confexc, configure
 
 
 @confexc(KeyError)
@@ -18,9 +18,9 @@ def ilp(in_channels):
 
 
 @configure(
-    _num_warps=lambda weight: warps(weight.shape[0]),
+    _num_warps=lambda x: warps(x.shape[1]),
     D_block=16,
-    _ILP=lambda weight: ilp(weight.shape[0]),
+    _ILP=lambda x: ilp(x.shape[1]),
 )
 def ReLULinearAdd(
     x,
@@ -32,15 +32,12 @@ def ReLULinearAdd(
     _ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
-    out_channels = weight.shape[1]
+    out_channels = add_other.shape[1]
     numel = x.numel()
-
-    assert in_channels >= 16 and out_channels >= 16
 
     assert x.ndim == add_other.ndim == 5
     assert list(x.shape[2:]) == list(add_other.shape[2:])
     assert x.shape[0] == add_other.shape[0]
-    assert add_other.shape[1] == out_channels
     assert in_channels == next_power_of_2(in_channels)
     assert out_channels == next_power_of_2(out_channels)
     assert list(weight.shape) == [in_channels, out_channels]

@@ -4,7 +4,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.dw_conv import _DWConv_cl3d_impl
-from ...settings import ConfigurableArg, configure, confexc
+from ...settings import ConfigurableArg, confexc, configure
 
 
 @confexc(KeyError)
