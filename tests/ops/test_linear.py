@@ -1,4 +1,5 @@
 import math
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -129,7 +130,7 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
     )
     grad = torch.randn_like(x)
     x.requires_grad_(True)
-    
+
     weight_up = torch.randn(channels, channels * 2, dtype=torch.float32, device='cuda')
     nn.init.kaiming_uniform_(weight_up, a=math.sqrt(5))
     weight_up.requires_grad_(True)
@@ -142,17 +143,17 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
     bias.requires_grad_(True)
 
     input_grad, weight_up_grad, weight_down_grad, bias_grad = LinBReLULinBackward(
-        x, 
-        grad, 
-        weight_up.to(torch.float16), 
-        weight_down.to(torch.float16), 
+        x,
+        grad,
+        weight_up.to(torch.float16),
+        weight_down.to(torch.float16),
         bias.to(torch.float16),
     )
 
     with torch.amp.autocast('cuda'):
-        x_ = F.conv3d(x, weight_up.permute(1, 0)[:,:,None,None,None], bias, stride=1, padding=0)
+        x_ = F.conv3d(x, weight_up.permute(1, 0)[:, :, None, None, None], bias, stride=1, padding=0)
         x_ = F.relu(x_)
-        x_ = F.conv3d(x_, weight_down.permute(1, 0)[:,:,None,None,None], None, stride=1, padding=0)
+        x_ = F.conv3d(x_, weight_down.permute(1, 0)[:, :, None, None, None], None, stride=1, padding=0)
 
     x_.backward(grad)
 
@@ -177,7 +178,6 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
         with torch.cuda.amp.autocast(), torch.inference_mode():
             for inp, grd, inp_grad in zip(x[b, :, h, w, d], grad[b, :, h, w, d], input_grad[b, :, h, w, d]):
                 linup = inp @ weight_up + bias
-                linup_relu = F.relu(linup)
 
                 linup_relu_grad = weight_down @ grd
                 linup_grad = linup_relu_grad * (linup > 0)
