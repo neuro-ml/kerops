@@ -164,7 +164,7 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
         atol_cos=1e-4,
         rtol_len=1e-3 * bsize,
         atol_len=1e-3,
-        debug_info='print'
+        debug_info='print',
     )
 
     assert weight_grad_similarity(
@@ -174,7 +174,7 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
         atol_cos=1e-4,
         rtol_len=2e-3 * bsize,
         atol_len=1e-3,
-        debug_info='print'
+        debug_info='print',
     )
 
     assert weight_grad_similarity(
@@ -184,7 +184,7 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
         atol_cos=1e-3,
         rtol_len=2e-3 * bsize,
         atol_len=1e-3,
-        debug_info='print'
+        debug_info='print',
     )
 
     allclose = allclose_two_stage(

@@ -22,7 +22,6 @@ def allclose_two_stage(
     elif debug_info is None:
         debug_info = lambda x: None
 
-
     assert input.shape == other.shape
     assert input.dtype == other.dtype
     assert input.device == other.device
@@ -70,15 +69,7 @@ def allclose_two_stage(
     return False
 
 
-def weight_grad_similarity(
-    input,
-    other,
-    rtol_cos=1e-4,
-    atol_cos=1e-4,
-    rtol_len=1e-3,
-    atol_len=1e-3,
-    debug_info=None
-):
+def weight_grad_similarity(input, other, rtol_cos=1e-4, atol_cos=1e-4, rtol_len=1e-3, atol_len=1e-3, debug_info=None):
     if isinstance(debug_info, str):
         if debug_info == 'print':
             debug_info = print
@@ -100,12 +91,7 @@ def weight_grad_similarity(
         debug_info(f'Direction test failed - {cos_sim}')
         return False
 
-    magnitudes_close = torch.allclose(
-        torch.norm(input_flat),
-        torch.norm(other_flat),
-        rtol=rtol_len,
-        atol=atol_len
-    )
+    magnitudes_close = torch.allclose(torch.norm(input_flat), torch.norm(other_flat), rtol=rtol_len, atol=atol_len)
 
     if not magnitudes_close:
         debug_info(f'Magnitude test failed - {torch.norm(input_flat)=}, {torch.norm(other_flat)=}')
