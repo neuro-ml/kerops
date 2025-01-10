@@ -3,8 +3,8 @@ from math import ceil
 import torch
 from triton import next_power_of_2
 
-from ..kernels.linear import _LinBReLULinBackward
-from ..settings import ConfigurableArg, configure
+from ...kernels.linear import _LinBReLULinBackward
+from ...settings import ConfigurableArg, configure
 
 
 def ilp(channels):
