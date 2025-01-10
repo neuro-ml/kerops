@@ -7,26 +7,18 @@ from ..kernels.linear import _LinBReLULinAdd, _LinBReLULinBackward, _ReLULinearA
 from ..settings import ConfigurableArg, configure
 
 
-def fwd_warps(in_channels):
+def warps_fwd(in_channels):
     return {16: 2, 32: 2, 64: 1, 128: 1}[in_channels]
 
 
-def fwd_ilp(in_channels):
+def ilp_fwd(in_channels):
     return {16: 8, 32: 8, 64: 4, 128: 4}[in_channels]
 
 
-def bwd_warps(in_channels):
-    return {16: 4, 32: 8, 64: 8, 128: 8}[in_channels]
-
-
-def bwd_dblock(in_channels):
-    return {16: 16, 32: 32, 64: 32, 128: 32}[in_channels]
-
-
 @configure(
-    _num_warps=lambda weight: fwd_warps(weight.shape[0]),
+    _num_warps=lambda weight: warps_fwd(weight.shape[0]),
     D_block=16,
-    _ILP=lambda weight: fwd_ilp(weight.shape[0]),
+    _ILP=lambda weight: ilp_fwd(weight.shape[0]),
 )
 def ReLULinearAdd(
     x,
@@ -76,9 +68,17 @@ def ReLULinearAdd(
     return output
 
 
+def warps_fwd(in_channels):
+    return {16: 4, 32: 8, 64: 8, 128: 8}[in_channels]
+
+
+def dblock_bwd(in_channels):
+    return {16: 16, 32: 32, 64: 32, 128: 32}[in_channels]
+
+
 @configure(
-    _num_warps=lambda weight: bwd_warps(weight.shape[0]),
-    D_block=lambda weight: bwd_dblock(weight.shape[0]),
+    _num_warps=lambda weight: warps_fwd(weight.shape[0]),
+    D_block=lambda weight: dblock_bwd(weight.shape[0]),
     _ILP=16,
 )
 def ReLULinearBackward(
@@ -136,10 +136,18 @@ def ReLULinearBackward(
     return input_grad, weight_grad.sum(dim=0)
 
 
+def LinBReLULinAdd_dblock(channels):
+    return {16: 32, 32: 16, 64: 32}[channels]
+
+
+def LinBReLULinAdd_ilp(channels):
+    return {16: 1, 32: 2, 64: 8}[channels]
+
+
 @configure(
     _num_warps=1,
-    D_block=lambda x: {16: 32, 32: 16, 64: 32}[x.shape[1]],
-    _ILP=lambda x: {16: 1, 32: 2, 64: 8}[x.shape[1]],
+    D_block=lambda x: LinBReLULinAdd_dblock(x.shape[1]),
+    _ILP=lambda x: LinBReLULinAdd_ilp(x.shape[1]),
 )
 def LinBReLULinAdd(
     x,
