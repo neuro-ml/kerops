@@ -4,13 +4,15 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAddBackward
-from ...settings import ConfigurableArg, configure
+from ...settings import ConfigurableArg, configure, confexc
 
 
+@confexc(KeyError)
 def warps(in_channels):
     return {16: 4, 32: 8, 64: 8, 128: 8}[in_channels]
 
 
+@confexc(KeyError)
 def dblock(in_channels):
     return {16: 16, 32: 32, 64: 32, 128: 32}[in_channels]
 

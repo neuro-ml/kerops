@@ -4,9 +4,10 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _LinBReLULinBackward
-from ...settings import ConfigurableArg, configure
+from ...settings import ConfigurableArg, configure, confexc
 
 
+@confexc(KeyError)
 def ilp(channels):
     return {16: 8, 32: 9}[channels]
 

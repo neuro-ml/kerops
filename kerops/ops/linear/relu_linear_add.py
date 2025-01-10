@@ -4,13 +4,15 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAdd
-from ...settings import ConfigurableArg, configure
+from ...settings import ConfigurableArg, configure, confexc
 
 
+@confexc(KeyError)
 def warps(in_channels):
     return {16: 2, 32: 2, 64: 1, 128: 1}[in_channels]
 
 
+@confexc(KeyError)
 def ilp(in_channels):
     return {16: 8, 32: 8, 64: 4, 128: 4}[in_channels]
 

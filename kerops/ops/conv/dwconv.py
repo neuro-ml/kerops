@@ -4,13 +4,15 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.dw_conv import _DWConv_cl3d_impl
-from ...settings import ConfigurableArg, configure
+from ...settings import ConfigurableArg, configure, confexc
 
 
+@confexc(KeyError)
 def warps(channels):
     return {8: 1, 16: 2, 32: 2, 64: 2, 128: 4}[channels]
 
 
+@confexc(KeyError)
 def dblock(channels):
     return {8: 32, 16: 32, 32: 16, 64: 8, 128: 8}[channels]
 

@@ -5,6 +5,10 @@ class ConfigurableArg:
     pass
 
 
+class CongiguratorError(Exception):
+    pass
+
+
 def validate_signature(signature):
     for param in signature.parameters.values():
         if param.annotation is ConfigurableArg and param.kind is not Parameter.KEYWORD_ONLY:

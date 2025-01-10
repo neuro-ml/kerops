@@ -4,13 +4,15 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _LinBReLULinAdd
-from ...settings import ConfigurableArg, configure
+from ...settings import ConfigurableArg, configure, confexc
 
 
+@confexc(KeyError)
 def dblock(channels):
     return {16: 32, 32: 16, 64: 32}[channels]
 
 
+@confexc(KeyError)
 def ilp(channels):
     return {16: 1, 32: 2, 64: 8}[channels]
 

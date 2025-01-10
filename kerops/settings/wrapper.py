@@ -2,7 +2,7 @@ import inspect
 from functools import wraps
 from typing import Callable
 
-from .utils import configs_match, get_config_args, get_standard_args, validate_signature
+from .utils import configs_match, get_config_args, get_standard_args, validate_signature, CongiguratorError
 
 
 class EmptyKwarg:
@@ -65,4 +65,16 @@ def configure(**configurators):
 
         return wraps(function)(ConfiguredFunction(function, signature, configurable_args, usual_args, **configurators))
 
+    return wrapper
+
+
+def confexc(*exceptions):
+    def wrapper(configurator):
+        @wraps(configurator)
+        def wrapped(*args, **kwargs):
+            try:
+                return configurator(*args, **kwargs)
+            except exceptions as e:
+                raise CongiguratorError(str(e))
+        return wrapped
     return wrapper
