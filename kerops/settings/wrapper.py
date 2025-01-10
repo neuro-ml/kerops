@@ -17,6 +17,19 @@ class ConfiguredFunction:
         self.usual_args = usual_args
         self.configurators = configurators
 
+    def __repr__(self):
+        def format_configurator(configurator):
+            if isinstance(configurator, Callable):
+                params = ', '.join(inspect.signature(configurator).parameters)
+                return f'Configurator({params})'
+            return str(configurator)
+
+        configurators_repr = '\n'.join(
+            f'{confarg}: {format_configurator(configurator)}' for confarg, configurator in self.configurators.items()
+        )
+
+        return f'{self.origin_function.__name__}{self.signature}\n{configurators_repr}'
+
     @staticmethod
     def configurator_call(args, configurator, usual_args):
         if isinstance(configurator, Callable):
