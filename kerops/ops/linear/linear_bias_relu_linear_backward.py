@@ -43,16 +43,9 @@ def LinBReLULinBackward(
     assert grad.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
-
     grid_size = ceil(numel_no_channels / (D_block * _ILP))
 
-    bsize, _, H, W, D = grad.shape
-    x_grad = torch.empty(
-        [bsize, in_channels, H, W, D],
-        dtype=grad.dtype,
-        device=grad.device,
-        memory_format=torch.channels_last_3d,
-    )
+    x_grad = torch.empty_like(x)
     weight_up_grad = torch.zeros([grid_size, in_channels, hidden_channels], dtype=torch.float32, device='cuda')
     weight_down_grad = torch.zeros([grid_size, hidden_channels, in_channels], dtype=torch.float32, device='cuda')
     bias_grad = torch.zeros([grid_size, hidden_channels], dtype=torch.float32, device='cuda')

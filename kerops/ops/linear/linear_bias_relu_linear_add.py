@@ -48,10 +48,8 @@ def LinBReLULinAdd(
     assert add_other.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
-
     grid_size = ceil(numel_no_channels / (D_block * _ILP))
 
-    bsize, _, H, W, D = x.shape
     output = torch.empty_like(x)
 
     _LinBReLULinAdd[(grid_size,)](
