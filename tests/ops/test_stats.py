@@ -41,7 +41,13 @@ def test_stats_backward(bsize, channels, other_1, other_2, other_3):
     grad_to_check = StatsBackward(x, upstr_mean, upstr_sqmean)
     if x.numel() // channels >= 100:
         assert allclose_two_stage(
-            grad, grad_to_check, rtol_strict=1e-5, atol_strict=1e-4, rtol_narrow=1e-4, atol_narrow=1e-3
+            grad,
+            grad_to_check,
+            rtol_strict=1e-5,
+            atol_strict=1e-4,
+            rtol_narrow=1e-4,
+            atol_narrow=1e-3,
+            debug_info='print',
         )
     else:
         assert torch.allclose(grad, grad_to_check, rtol=1e-5, atol=5e-4)

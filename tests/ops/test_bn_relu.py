@@ -29,7 +29,14 @@ def test_apply_bn_relu(bsize, channels, other_1, other_2, other_3):
         B = bias - mean * rvareps * weight
         out_check = ApplyBNReLU(sum, W, B)
     assert allclose_two_stage(
-        out, out_check, rtol_strict=1e-5, atol_strict=1e-4, percentile_strict=0.995, rtol_narrow=1e-3, atol_narrow=1e-3
+        out,
+        out_check,
+        rtol_strict=1e-5,
+        atol_strict=1e-4,
+        percentile_strict=0.995,
+        rtol_narrow=1e-3,
+        atol_narrow=1e-3,
+        debug_info='print',
     )
 
 

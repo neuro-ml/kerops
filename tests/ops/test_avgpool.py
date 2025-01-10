@@ -24,7 +24,14 @@ def test_avgpool_ceil_stats(bsize, channels, other_1, other_2, other_3):
         assert torch.allclose(res, res_, rtol=1e-5, atol=5e-5)
     else:
         assert allclose_two_stage(
-            res, res_, rtol_strict=1e-5, atol_strict=5e-5, rtol_narrow=1e-4, atol_narrow=1e-3, precision=torch.float32
+            res,
+            res_,
+            rtol_strict=1e-5,
+            atol_strict=5e-5,
+            rtol_narrow=1e-4,
+            atol_narrow=1e-3,
+            precision=torch.float32,
+            debug_info='print',
         )
 
 
@@ -56,15 +63,12 @@ def test_avgpool_ceil_stats_backward(bsize, channels, other_1, other_2, other_3)
     if grad.numel() < 100:
         assert torch.allclose(grad, grad_check, atol=2e-3, rtol=1e-4)
     else:
-        if not allclose_two_stage(
-            grad, grad_check, rtol_strict=1e-4, atol_strict=5e-4, rtol_narrow=1e-4, atol_narrow=2e-3
-        ):
-            assert allclose_two_stage(
-                grad,
-                grad_check,
-                rtol_strict=1e-4,
-                atol_strict=5e-4,
-                rtol_narrow=1e-4,
-                atol_narrow=2e-3,
-                debug_info='print',
-            )
+        assert allclose_two_stage(
+            grad,
+            grad_check,
+            rtol_strict=1e-4,
+            atol_strict=5e-4,
+            rtol_narrow=1e-4,
+            atol_narrow=2e-3,
+            debug_info='print',
+        )

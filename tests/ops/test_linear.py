@@ -28,51 +28,51 @@ def test_relu_linear_add(bsize, other_1, other_2, other_3, channels_out):
 
 
 def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out):
-    if other_1 < 53 and other_2 < 53 and other_3 < 53:
-        torch.manual_seed(322)
-        x = (
-            torch.randn(bsize, 32, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
-                memory_format=torch.channels_last_3d
-            )
-            / 5
-        )
-        weight_x = nn.Conv3d(32, channels_out, 1, bias=False).weight.data.to('cuda').to(torch.float16)
-        x.requires_grad_(True)
-        weight_x.requires_grad_(True)
+    if not (other_1 < 53 and other_2 < 53 and other_3 < 53):
+        return
 
-        grad = (
-            torch.randn(bsize, channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
-                memory_format=torch.channels_last_3d
-            )
-            / 5
+    torch.manual_seed(322)
+    x = (
+        torch.randn(bsize, 32, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+            memory_format=torch.channels_last_3d
         )
+        / 5
+    )
+    weight_x = nn.Conv3d(32, channels_out, 1, bias=False).weight.data.to('cuda').to(torch.float16)
+    x.requires_grad_(True)
+    weight_x.requires_grad_(True)
 
-        out_1 = F.conv3d(F.relu(x), weight_x, None, stride=(1, 1, 1), padding=(0, 0, 0))
-        out_1.backward(grad)
+    grad = (
+        torch.randn(bsize, channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+            memory_format=torch.channels_last_3d
+        )
+        / 5
+    )
 
-        grad_x_check, grad_weight_x_check = ReLULinearBackward(
-            x, grad, weight_x[:, :, 0, 0, 0].permute(1, 0).contiguous()
-        )
-        grad_weight_x_check = grad_weight_x_check.permute(1, 0).contiguous()[:, :, None, None, None]
+    out_1 = F.conv3d(F.relu(x), weight_x, None, stride=(1, 1, 1), padding=(0, 0, 0))
+    out_1.backward(grad)
 
-        assert allclose_two_stage(
-            x.grad,
-            grad_x_check,
-            atol_strict=1e-4,
-            rtol_strict=1e-4,
-            rtol_narrow=1e-3,
-            atol_narrow=1e-3,
-            debug_info='print',
-        )
-        assert allclose_two_stage(
-            weight_x.grad,
-            grad_weight_x_check,
-            atol_strict=1e-2,
-            rtol_strict=bsize * 1e-2,
-            rtol_narrow=1e-2,
-            atol_narrow=bsize * 2e-2,
-            debug_info='print',
-        )
+    grad_x_check, grad_weight_x_check = ReLULinearBackward(x, grad, weight_x[:, :, 0, 0, 0].permute(1, 0).contiguous())
+    grad_weight_x_check = grad_weight_x_check.permute(1, 0).contiguous()[:, :, None, None, None]
+
+    assert allclose_two_stage(
+        x.grad,
+        grad_x_check,
+        atol_strict=1e-4,
+        rtol_strict=1e-4,
+        rtol_narrow=1e-3,
+        atol_narrow=1e-3,
+        debug_info='print',
+    )
+    assert allclose_two_stage(
+        weight_x.grad,
+        grad_weight_x_check,
+        atol_strict=1e-2,
+        rtol_strict=bsize * 1e-2,
+        rtol_narrow=1e-2,
+        atol_narrow=bsize * 2e-2,
+        debug_info='print',
+    )
 
 
 def test_linbrelulinadd(bsize, channels, other_1, other_2, other_3):
