@@ -46,6 +46,18 @@ class ConfiguredFunction:
 
         return self.origin_function(*bind.args, **configured_kwargs)
 
+    def can_be_configured(self, **kwargs):
+        try:
+            for configurator in self.configurators.values():
+                if isinstance(configurator, Callable):
+                    confargs = inspect.signature(configurator).parameters
+                    _ = configurator(**{arg: kwargs[arg] for arg in confargs})
+
+        except CongiguratorError:
+            return False
+
+        return True
+
     def reconfigure(self, **new_configurators):
         configs_match(self.configurable_args, new_configurators.keys())
         self.configurators = new_configurators
