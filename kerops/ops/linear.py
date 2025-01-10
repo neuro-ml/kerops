@@ -202,6 +202,15 @@ def LinBReLULinAdd(
     return output
 
 
+def LinBReLULinBackward_ilp(channels):
+    return {16: 8, 32: 9}[channels]
+
+
+@configure(
+    _num_warps=2,
+    D_block=32,
+    _ILP=lambda x: LinBReLULinBackward_ilp(x.shape[1]),
+)
 def LinBReLULinBackward(
     input,
     grad,
@@ -209,9 +218,9 @@ def LinBReLULinBackward(
     weight_down,
     bias,
     *,
-    _num_warps=8,
-    D_block=32,
-    _ILP=16,
+    _num_warps: ConfigurableArg,
+    D_block: ConfigurableArg,
+    _ILP: ConfigurableArg,
 ):
     in_channels = input.shape[1]
     hidden_channels = weight_up.shape[1]
