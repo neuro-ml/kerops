@@ -45,8 +45,12 @@ def test_dwconv_wgrad(bsize, channels, other_1, other_2, other_3):
         return
 
     torch.manual_seed(322)
-    x = torch.randn(bsize, channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
-    grad = torch.randn(bsize, channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    x = torch.randn(bsize, channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
+    grad = torch.randn(bsize, channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
 
     weight = torch.empty(channels, 1, 3, 3, 3, device='cuda', dtype=torch.float32)
     nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
@@ -57,12 +61,12 @@ def test_dwconv_wgrad(bsize, channels, other_1, other_2, other_3):
 
     with torch.amp.autocast('cuda'):
         out = F.conv3d(
-            x, 
-            weight.permute(3, 0, 1, 2)[:, None].contiguous(), 
-            None, 
-            stride=(1, 1, 1), 
-            padding=(1, 1, 1), 
-            groups=channels
+            x,
+            weight.permute(3, 0, 1, 2)[:, None].contiguous(),
+            None,
+            stride=(1, 1, 1),
+            padding=(1, 1, 1),
+            groups=channels,
         )
 
     out.backward(grad)
