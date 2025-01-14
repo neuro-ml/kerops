@@ -51,7 +51,7 @@ def ReLULinearBackward(
 
     bsize, _, H, W, D = grad.shape
     x_grad = torch.empty_like(x)
-    weight_grad = torch.zeros([grid_size, in_channels, out_channels], dtype=torch.float16, device='cuda')
+    weight_grad = torch.zeros([grid_size, in_channels, out_channels], dtype=torch.float32, device='cuda')
 
     _ReLULinearAddBackward[(grid_size,)](
         x,

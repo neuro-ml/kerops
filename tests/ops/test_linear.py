@@ -16,11 +16,16 @@ def test_relu_linear_add(bsize, other_1, other_2, other_3, channels_out):
     other = torch.randn(bsize, channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
         memory_format=torch.channels_last_3d
     )
-    weight = nn.Conv3d(32, channels_out, 1, bias=False).weight.data.to('cuda').to(torch.float16)
+    weight = torch.empty(32, channels_out, device='cuda', dtype=torch.float16)
+    nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
+
+    out_2 = ReLULinearAdd(x, weight, other)
 
     with torch.inference_mode():
-        out_1 = F.conv3d(F.relu(x), weight, None, stride=(1, 1, 1), padding=(0, 0, 0)) + other
-        out_2 = ReLULinearAdd(x, weight[:, :, 0, 0, 0].permute(1, 0).contiguous(), other)
+        out_1 = F.conv3d(
+            F.relu(x), weight.permute(1, 0)[:, :, None, None, None], None, stride=(1, 1, 1), padding=(0, 0, 0)
+        )
+        out_1 += other
 
     assert allclose_two_stage(
         out_1, out_2, atol_strict=1e-4, rtol_strict=1e-4, rtol_narrow=1e-3, atol_narrow=1e-3, debug_info='print'
@@ -28,32 +33,28 @@ def test_relu_linear_add(bsize, other_1, other_2, other_3, channels_out):
 
 
 def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out):
-    if not (other_1 < 53 and other_2 < 53 and other_3 < 53):
-        return
-
     torch.manual_seed(322)
-    x = (
-        torch.randn(bsize, 32, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
-            memory_format=torch.channels_last_3d
-        )
-        / 5
+    x = torch.randn(bsize, 32, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+        memory_format=torch.channels_last_3d
     )
-    weight_x = nn.Conv3d(32, channels_out, 1, bias=False).weight.data.to('cuda').to(torch.float16)
     x.requires_grad_(True)
+
+    weight_x = torch.empty(32, channels_out, device='cuda', dtype=torch.float32)
+    nn.init.kaiming_uniform_(weight_x, a=math.sqrt(5))
     weight_x.requires_grad_(True)
 
-    grad = (
-        torch.randn(bsize, channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
-            memory_format=torch.channels_last_3d
-        )
-        / 5
+    grad = torch.randn(bsize, channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+        memory_format=torch.channels_last_3d
     )
 
-    out_1 = F.conv3d(F.relu(x), weight_x, None, stride=(1, 1, 1), padding=(0, 0, 0))
+    with torch.amp.autocast('cuda'):
+        out_1 = F.conv3d(
+            F.relu(x), weight_x.permute(1, 0)[:, :, None, None, None], None, stride=(1, 1, 1), padding=(0, 0, 0)
+        )
+
     out_1.backward(grad)
 
-    grad_x_check, grad_weight_x_check = ReLULinearBackward(x, grad, weight_x[:, :, 0, 0, 0].permute(1, 0).contiguous())
-    grad_weight_x_check = grad_weight_x_check.permute(1, 0).contiguous()[:, :, None, None, None]
+    grad_x_check, grad_weight_x_check = ReLULinearBackward(x, grad, weight_x.to(torch.float16))
 
     assert allclose_two_stage(
         x.grad,
@@ -64,13 +65,14 @@ def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out
         atol_narrow=1e-3,
         debug_info='print',
     )
-    assert allclose_two_stage(
+
+    assert weight_grad_similarity(
         weight_x.grad,
         grad_weight_x_check,
-        atol_strict=1e-2,
-        rtol_strict=bsize * 1e-2,
-        rtol_narrow=1e-2,
-        atol_narrow=bsize * 2e-2,
+        rtol_cos=1e-4,
+        atol_cos=1e-4,
+        rtol_len=1e-3 * bsize,
+        atol_len=1e-3,
         debug_info='print',
     )
 
@@ -95,14 +97,10 @@ def test_linbrelulinadd(bsize, channels, other_1, other_2, other_3):
     bias = torch.randn(2 * channels, dtype=torch.float32, device='cuda')
 
     out = LinBReLULinAdd(
-        x,
-        weight_up.to(torch.float16),
-        weight_down.to(torch.float16),
-        bias.to(torch.float16),
-        add_other
+        x, weight_up.to(torch.float16), weight_down.to(torch.float16), bias.to(torch.float16), add_other
     )
 
-    with torch.amp.autocast('cuda'), torch.inference_mode(): 
+    with torch.amp.autocast('cuda'), torch.inference_mode():
         out_base = F.conv3d(x, weight_up.permute(1, 0)[:, :, None, None, None], bias)
         out_base = F.relu(out_base)
         out_base = F.conv3d(out_base, weight_down.permute(1, 0)[:, :, None, None, None], None)
