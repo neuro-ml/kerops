@@ -51,7 +51,7 @@ def DWConvWGRAD(
     D_grid = ceil(D / D_block)
     grid = (H_grid, W_grid, D_grid)
 
-    grad_w = torch.zeros([bsize, H_grid * W_grid * D_grid, 3, 3, 3, channels], device=x.device, dtype=torch.float32)
+    grad_w = torch.zeros([bsize, H_grid * W_grid * D_grid, 3, 3, 3, channels], device=x.device, dtype=torch.float16)
     WD_grid = W_grid * D_grid  # TODO: mb implement in another way
 
     for unbatched_x, unbatched_grad, unbatched_grad_w in zip(x, grad, grad_w):

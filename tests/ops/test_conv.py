@@ -57,7 +57,7 @@ def test_dwconv_wgrad(bsize, channels, other_1, other_2, other_3):
     weight = weight[:, 0].permute(1, 2, 3, 0).contiguous()
     weight.requires_grad_(True)
 
-    grad_w_check = DWConvWGRAD(x, grad)
+    grad_w_check = DWConvWGRAD(x, grad).to(torch.float32)
 
     with torch.amp.autocast('cuda'):
         out = F.conv3d(
