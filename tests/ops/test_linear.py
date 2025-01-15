@@ -55,6 +55,7 @@ def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out
     out_1.backward(grad)
 
     grad_x_check, grad_weight_x_check = ReLULinearBackward(x, grad, weight_x.to(torch.float16))
+    grad_weight_x_check = grad_weight_x_check.to(torch.float32)
 
     assert allclose_two_stage(
         x.grad,
