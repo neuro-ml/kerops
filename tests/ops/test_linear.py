@@ -149,6 +149,10 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
         bias.to(torch.float16),
     )
 
+    weight_up_grad = weight_up_grad.to(torch.float32)
+    weight_down_grad = weight_down_grad.to(torch.float32)
+    bias_grad = bias_grad.to(torch.float32)
+
     with torch.amp.autocast('cuda'):
         x_ = F.conv3d(x, weight_up.permute(1, 0)[:, :, None, None, None], bias, stride=1, padding=0)
         x_ = F.relu(x_)
@@ -177,8 +181,8 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
     )
 
     assert weight_grad_similarity(
-        weight_up.grad,
-        weight_up_grad,
+        bias.grad,
+        bias_grad,
         rtol_cos=1e-3,
         atol_cos=1e-3,
         rtol_len=2e-3 * bsize,

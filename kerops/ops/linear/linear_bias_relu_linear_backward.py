@@ -46,9 +46,9 @@ def LinBReLULinBackward(
     grid_size = ceil(numel_no_channels / (D_block * _ILP))
 
     x_grad = torch.empty_like(x)
-    weight_up_grad = torch.zeros([grid_size, in_channels, hidden_channels], dtype=torch.float32, device='cuda')
-    weight_down_grad = torch.zeros([grid_size, hidden_channels, in_channels], dtype=torch.float32, device='cuda')
-    bias_grad = torch.zeros([grid_size, hidden_channels], dtype=torch.float32, device='cuda')
+    weight_up_grad = torch.zeros([grid_size, in_channels, hidden_channels], dtype=torch.float16, device='cuda')
+    weight_down_grad = torch.zeros([grid_size, hidden_channels, in_channels], dtype=torch.float16, device='cuda')
+    bias_grad = torch.zeros([grid_size, hidden_channels], dtype=torch.float16, device='cuda')
 
     _LinBReLULinBackward[(grid_size,)](
         x,
