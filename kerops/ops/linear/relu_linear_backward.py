@@ -18,18 +18,18 @@ def dblock(in_channels):
 
 
 @configure(
-    _num_warps=lambda x: warps(x.shape[1]),
+    num_warps=lambda x: warps(x.shape[1]),
     D_block=lambda x: dblock(x.shape[1]),
-    _ILP=16,
+    ILP=16,
 )
 def ReLULinearBackward(
     x,
     grad,
     weight,
     *,
-    _num_warps: ConfigurableArg,
+    num_warps: ConfigurableArg,
     D_block: ConfigurableArg,
-    _ILP: ConfigurableArg,
+    ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
     out_channels = grad.shape[1]
@@ -47,7 +47,7 @@ def ReLULinearBackward(
 
     numel_no_channels = numel // out_channels
 
-    grid_size = ceil(numel_no_channels / (D_block * _ILP))
+    grid_size = ceil(numel_no_channels / (D_block * ILP))
 
     bsize, _, H, W, D = grad.shape
     x_grad = torch.empty_like(x)
@@ -63,8 +63,8 @@ def ReLULinearBackward(
         in_channels,
         out_channels,
         D_block,
-        _ILP,
-        num_warps=_num_warps,
+        ILP,
+        num_warps=num_warps,
     )
 
     return x_grad, weight_grad.sum(dim=0)

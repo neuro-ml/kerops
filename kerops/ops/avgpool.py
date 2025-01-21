@@ -9,13 +9,13 @@ from ..settings import ConfigurableArg, configure, get_l1_cache
 
 
 @configure(
-    _l1_cache_bytes=get_l1_cache,
-    _num_warps=2,
+    l1_cache_bytes=get_l1_cache,
+    num_warps=2,
 )
-def AvgPoolCeilStats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
+def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     input_d = x.shape[-1]
-    MAX_SIZE = _l1_cache_bytes // x.element_size()  # 32768 for fp16
+    MAX_SIZE = l1_cache_bytes // x.element_size()  # 32768 for fp16
 
     assert input_d * num_channels <= MAX_SIZE
     assert num_channels == next_power_of_2(num_channels)
@@ -55,12 +55,12 @@ def AvgPoolCeilStats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: Configu
         numel_no_channels_output=numel_no_channels_output,
         num_channels=num_channels,
         almost_half_d=almost_half_d,
-        num_warps=_num_warps,
+        num_warps=num_warps,
     )
     return output, mean, sqmean
 
 
-@configure(_l1_cache_bytes=get_l1_cache, _num_warps=4)
+@configure(l1_cache_bytes=get_l1_cache, num_warps=4)
 def AvgPoolCeilStatsBackward(
     inpgrad,
     meangrad,
@@ -68,10 +68,10 @@ def AvgPoolCeilStatsBackward(
     output,
     outgrad_shape,
     *,
-    _l1_cache_bytes: ConfigurableArg,
-    _num_warps: ConfigurableArg,
+    l1_cache_bytes: ConfigurableArg,
+    num_warps: ConfigurableArg,
 ):
-    MAX_SIZE = _l1_cache_bytes // inpgrad.element_size()  # 32768 for fp16
+    MAX_SIZE = l1_cache_bytes // inpgrad.element_size()  # 32768 for fp16
     bsize, num_channels, h_outgrad, w_outgrad, d_outgrad = outgrad_shape
     d_inpgrad = inpgrad.shape[-1]
 
@@ -117,6 +117,6 @@ def AvgPoolCeilStatsBackward(
         numel_no_channels_inpgrad=numel_no_channels_inpgrad,
         num_channels=num_channels,
         almost_half_d=almost_half_d,
-        num_warps=_num_warps,
+        num_warps=num_warps,
     )
     return outgrad

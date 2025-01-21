@@ -8,28 +8,23 @@ from ...settings import ConfigurableArg, confexc, configure
 
 
 @confexc(KeyError)
-def warps(in_channels):
-    return {16: 2, 32: 2, 64: 1, 128: 1}[in_channels]
-
-
-@confexc(KeyError)
 def ilp(in_channels):
     return {16: 8, 32: 8, 64: 4, 128: 4}[in_channels]
 
 
 @configure(
-    _num_warps=lambda x: warps(x.shape[1]),
+    num_warps=4,
     D_block=16,
-    _ILP=lambda x: ilp(x.shape[1]),
+    ILP=lambda x: ilp(x.shape[1]),
 )
 def ReLULinearAdd(
     x,
     weight,
     add_other,
     *,
-    _num_warps: ConfigurableArg,
+    num_warps: ConfigurableArg,
     D_block: ConfigurableArg,
-    _ILP: ConfigurableArg,
+    ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
     out_channels = add_other.shape[1]
@@ -46,7 +41,7 @@ def ReLULinearAdd(
     assert add_other.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
-    grid_size = ceil(numel_no_channels / (D_block * _ILP))
+    grid_size = ceil(numel_no_channels / (D_block * ILP))
 
     output = torch.empty_like(add_other)
 
@@ -59,7 +54,8 @@ def ReLULinearAdd(
         in_channels,
         out_channels,
         D_block,
-        _ILP,
+        ILP,
+        num_warps=num_warps
     )
 
     return output

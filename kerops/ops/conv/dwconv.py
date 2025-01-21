@@ -19,10 +19,10 @@ def dblock(channels):
 
 @configure(
     ACCTYPE='float32',
-    _num_warps=lambda x: warps(x.shape[1]),
+    num_warps=lambda x: warps(x.shape[1]),
     D_block=lambda x: dblock(x.shape[1]),
 )
-def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg):
+def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_block: ConfigurableArg):
     channels = x.shape[1]
 
     assert x.ndim == 5
@@ -57,7 +57,7 @@ def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, 
             ACCTYPE,
             channels,
             D_block,
-            num_warps=_num_warps,
+            num_warps=num_warps,
         )
 
     return output

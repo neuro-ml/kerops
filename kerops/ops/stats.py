@@ -8,8 +8,8 @@ from ..kernels.stats import _Stats_cl3d_backward_impl, _Stats_cl3d_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
 
 
-@configure(_l1_cache_bytes=get_l1_cache, _num_warps=4)
-def Stats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
+@configure(l1_cache_bytes=get_l1_cache, num_warps=4)
+def Stats(x, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.ndim == 5
@@ -17,7 +17,7 @@ def Stats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     assert x.dtype == torch.float16
     assert x.is_contiguous(memory_format=torch.channels_last_3d)
 
-    MAX_SIZE = _l1_cache_bytes // x.element_size()  # 32768 for fp16
+    MAX_SIZE = l1_cache_bytes // x.element_size()  # 32768 for fp16
     numel_no_channels = reduce(lambda x, y: x * y, [s if idx != 1 else 1 for idx, s in enumerate(x.shape)], 1)
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
@@ -27,12 +27,12 @@ def Stats(x, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
     mean = torch.zeros(num_channels, dtype=torch.float32, device=x.device)
     sqmean = torch.zeros(num_channels, dtype=torch.float32, device=x.device)
 
-    _Stats_cl3d_impl[(grid_size,)](x, mean, sqmean, numel_no_channels, num_channels, other, num_warps=_num_warps)
+    _Stats_cl3d_impl[(grid_size,)](x, mean, sqmean, numel_no_channels, num_channels, other, num_warps=num_warps)
     return mean, sqmean
 
 
-@configure(_l1_cache_bytes=get_l1_cache, _num_warps=4)
-def StatsBackward(x, mean_grad, sqmean_grad, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
+@configure(l1_cache_bytes=get_l1_cache, num_warps=4)
+def StatsBackward(x, mean_grad, sqmean_grad, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.ndim == 5
@@ -41,7 +41,7 @@ def StatsBackward(x, mean_grad, sqmean_grad, *, _l1_cache_bytes: ConfigurableArg
     assert mean_grad.numel() == sqmean_grad.numel() == num_channels
     assert x.is_contiguous(memory_format=torch.channels_last_3d)
 
-    MAX_SIZE = _l1_cache_bytes // x.element_size()  # 32768 for fp16
+    MAX_SIZE = l1_cache_bytes // x.element_size()  # 32768 for fp16
     numel_no_channels = reduce(lambda x, y: x * y, [s if idx != 1 else 1 for idx, s in enumerate(x.shape)], 1)
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
@@ -58,6 +58,6 @@ def StatsBackward(x, mean_grad, sqmean_grad, *, _l1_cache_bytes: ConfigurableArg
         numel_no_channels,
         num_channels=num_channels,
         block_other=other,
-        num_warps=_num_warps,
+        num_warps=num_warps,
     )
     return output_grad

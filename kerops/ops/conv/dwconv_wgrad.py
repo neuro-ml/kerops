@@ -24,12 +24,12 @@ def ilp(channels):
 
 @configure(
     ACCTYPE='float32',
-    _num_warps=lambda x: warps(x.shape[1]),
+    num_warps=lambda x: warps(x.shape[1]),
     D_block=lambda x: dblock(x.shape[1]),
     ILP=lambda x: ilp(x.shape[1]),
 )
 def DWConvWGRAD(
-    x, grad, *, ACCTYPE: ConfigurableArg, _num_warps: ConfigurableArg, D_block: ConfigurableArg, ILP: ConfigurableArg
+    x, grad, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_block: ConfigurableArg, ILP: ConfigurableArg
 ):
     channels = x.shape[1]
 
@@ -71,7 +71,7 @@ def DWConvWGRAD(
             D_grid,
             H_grid,
             ILP,
-            num_warps=_num_warps,
+            num_warps=num_warps,
         )
 
     grad_w = grad_w.sum(dim=(0, 1))

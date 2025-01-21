@@ -18,9 +18,9 @@ def ilp(channels):
 
 
 @configure(
-    _num_warps=1,
+    num_warps=4,
     D_block=lambda x: dblock(x.shape[1]),
-    _ILP=lambda x: ilp(x.shape[1]),
+    ILP=lambda x: ilp(x.shape[1]),
 )
 def LinBReLULinAdd(
     x,
@@ -29,9 +29,9 @@ def LinBReLULinAdd(
     bias,
     add_other,
     *,
-    _num_warps: ConfigurableArg,
+    num_warps: ConfigurableArg,
     D_block: ConfigurableArg,
-    _ILP: ConfigurableArg,
+    ILP: ConfigurableArg,
 ):
     in_channels = x.shape[1]
     hidden_channels = 2 * in_channels
@@ -48,7 +48,7 @@ def LinBReLULinAdd(
     assert add_other.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
-    grid_size = ceil(numel_no_channels / (D_block * _ILP))
+    grid_size = ceil(numel_no_channels / (D_block * ILP))
 
     output = torch.empty_like(x)
 
@@ -63,7 +63,8 @@ def LinBReLULinAdd(
         in_channels,
         hidden_channels,
         D_block,
-        _ILP,
+        ILP,
+        num_warps=num_warps
     )
 
     return output
