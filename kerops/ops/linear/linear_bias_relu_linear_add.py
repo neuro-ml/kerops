@@ -64,7 +64,7 @@ def LinBReLULinAdd(
         hidden_channels,
         D_block,
         ILP,
-        num_warps=num_warps
+        num_warps=num_warps,
     )
 
     return output

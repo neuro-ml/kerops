@@ -46,16 +46,7 @@ def ReLULinearAdd(
     output = torch.empty_like(add_other)
 
     _ReLULinearAdd[(grid_size,)](
-        x,
-        weight,
-        add_other,
-        output,
-        numel_no_channels,
-        in_channels,
-        out_channels,
-        D_block,
-        ILP,
-        num_warps=num_warps
+        x, weight, add_other, output, numel_no_channels, in_channels, out_channels, D_block, ILP, num_warps=num_warps
     )
 
     return output
