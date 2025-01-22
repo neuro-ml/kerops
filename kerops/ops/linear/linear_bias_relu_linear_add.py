@@ -9,11 +9,13 @@ from ...settings import ConfigurableArg, confexc, configure
 
 @confexc(KeyError)
 def dblock(channels):
+    # '64: 32' removed, fix bwd func
     return {16: 32, 32: 16, 64: 32}[channels]
 
 
 @confexc(KeyError)
 def ilp(channels):
+    # '64: 8' removed, fix bwd func
     return {16: 1, 32: 2, 64: 8}[channels]
 
 
