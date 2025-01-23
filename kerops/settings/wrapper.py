@@ -2,7 +2,7 @@ import inspect
 from functools import wraps
 from typing import Callable
 
-from .utils import configs_match, get_config_args, get_standard_args, validate_signature
+from .utils import CongiguratorError, configs_match, get_config_args, get_standard_args, validate_signature
 
 
 class EmptyKwarg:
@@ -16,6 +16,19 @@ class ConfiguredFunction:
         self.configurable_args = configurable_args
         self.usual_args = usual_args
         self.configurators = configurators
+
+    def __repr__(self):
+        def format_configurator(configurator):
+            if isinstance(configurator, Callable):
+                params = ', '.join(inspect.signature(configurator).parameters)
+                return f'Configurator({params})'
+            return str(configurator)
+
+        configurators_repr = '\n'.join(
+            f'{confarg}: {format_configurator(configurator)}' for confarg, configurator in self.configurators.items()
+        )
+
+        return f'{self.origin_function.__name__}{self.signature}\n{configurators_repr}'
 
     @staticmethod
     def configurator_call(args, configurator, usual_args):
@@ -46,6 +59,18 @@ class ConfiguredFunction:
 
         return self.origin_function(*bind.args, **configured_kwargs)
 
+    def can_be_configured(self, **kwargs):
+        try:
+            for configurator in self.configurators.values():
+                if isinstance(configurator, Callable):
+                    confargs = inspect.signature(configurator).parameters
+                    _ = configurator(**{arg: kwargs[arg] for arg in confargs})
+
+        except CongiguratorError:
+            return False
+
+        return True
+
     def reconfigure(self, **new_configurators):
         configs_match(self.configurable_args, new_configurators.keys())
         self.configurators = new_configurators
@@ -64,5 +89,19 @@ def configure(**configurators):
         configs_match(configurable_args, configurators.keys())
 
         return wraps(function)(ConfiguredFunction(function, signature, configurable_args, usual_args, **configurators))
+
+    return wrapper
+
+
+def confexc(*exceptions):
+    def wrapper(configurator):
+        @wraps(configurator)
+        def wrapped(*args, **kwargs):
+            try:
+                return configurator(*args, **kwargs)
+            except exceptions as e:
+                raise CongiguratorError(str(e))
+
+        return wrapped
 
     return wrapper

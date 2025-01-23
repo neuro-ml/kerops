@@ -8,8 +8,8 @@ from ..kernels.addition import _AddStats_cl3d_backward_impl, _AddStats_cl3d_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
 
 
-@configure(_l1_cache_bytes=get_l1_cache, _num_warps=8)
-def AddStats(x, y, inplace=False, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg):
+@configure(l1_cache_bytes=get_l1_cache, num_warps=8)
+def AddStats(x, y, inplace=False, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.shape == y.shape
@@ -19,7 +19,7 @@ def AddStats(x, y, inplace=False, *, _l1_cache_bytes: ConfigurableArg, _num_warp
     assert x.is_contiguous(memory_format=torch.channels_last_3d)
     assert y.is_contiguous(memory_format=torch.channels_last_3d)
 
-    MAX_SIZE = _l1_cache_bytes // x.element_size()  # 32768 for fp16
+    MAX_SIZE = l1_cache_bytes // x.element_size()  # 32768 for fp16
     numel_no_channels = reduce(lambda x, y: x * y, [s if idx != 1 else 1 for idx, s in enumerate(x.shape)], 1)
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
@@ -44,14 +44,14 @@ def AddStats(x, y, inplace=False, *, _l1_cache_bytes: ConfigurableArg, _num_warp
         BLOCK_SIZE=BLOCK_SIZE,
         num_channels=num_channels,
         block_other=other,
-        num_warps=_num_warps,
+        num_warps=num_warps,
     )
     return output, mean, sqmean
 
 
-@configure(_l1_cache_bytes=get_l1_cache, _num_warps=8)
+@configure(l1_cache_bytes=get_l1_cache, num_warps=8)
 def AddStatsBackward(
-    add_grad, mean_grad, sqmean_grad, add_result, *, _l1_cache_bytes: ConfigurableArg, _num_warps: ConfigurableArg
+    add_grad, mean_grad, sqmean_grad, add_result, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg
 ):
     num_channels = add_grad.shape[1]
     numel = add_grad.numel()
@@ -63,7 +63,7 @@ def AddStatsBackward(
     assert add_grad.is_contiguous(memory_format=torch.channels_last_3d)
     assert add_result.is_contiguous(memory_format=torch.channels_last_3d)
 
-    MAX_SIZE = _l1_cache_bytes // add_grad.element_size()  # 32768 for fp16
+    MAX_SIZE = l1_cache_bytes // add_grad.element_size()  # 32768 for fp16
     numel_no_channels = reduce(lambda x, y: x * y, [s if idx != 1 else 1 for idx, s in enumerate(add_grad.shape)], 1)
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
@@ -83,6 +83,6 @@ def AddStatsBackward(
         BLOCK_SIZE=BLOCK_SIZE,
         num_channels=num_channels,
         block_other=other,
-        num_warps=_num_warps,
+        num_warps=num_warps,
     )
     return output_grad
