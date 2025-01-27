@@ -2,7 +2,6 @@
 Fast algorithms for GPU
 
 # Install
-*pip is not available right now*
 ```shell
 pip install kerops
 ```
