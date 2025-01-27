@@ -37,7 +37,7 @@ profile = 'black'
 combine_as_imports = true
 
 [tool.setuptools.packages.find]
-include = ['kerops']
+where = ['.']
 
 [tool.setuptools.dynamic]
 version = { attr = 'kerops.__version__.__version__' }
