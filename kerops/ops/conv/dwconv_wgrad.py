@@ -1,10 +1,9 @@
-from math import ceil
-
 import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.dw_conv import _DWConv_wgrad_cl3d_impl
 from ...settings import ConfigurableArg, confexc, configure
+from ...utils import cdiv
 
 
 @confexc(KeyError)
@@ -46,9 +45,9 @@ def DWConvWGRAD(
     bsize, _, H, W, D = x.shape
     batch_stride, _, H_stride, W_stride, _ = x.stride()
 
-    H_grid = ceil(H / (2 * ILP))
-    W_grid = ceil(W / 2)
-    D_grid = ceil(D / D_block)
+    H_grid = cdiv(H, 2 * ILP)
+    W_grid = cdiv(W, 2)
+    D_grid = cdiv(D, D_block)
     grid = (H_grid, W_grid, D_grid)
 
     grad_w = torch.zeros([bsize, H_grid * W_grid * D_grid, 3, 3, 3, channels], device=x.device, dtype=torch.float16)

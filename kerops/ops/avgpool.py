@@ -1,11 +1,11 @@
 from functools import reduce
-from math import ceil
 
 import torch
 from triton import next_power_of_2
 
 from ..kernels.avgpool import _AvgPoolCeilStats_cl3d_backward_impl, _AvgPoolCeilStats_cl3d_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
+from ...utils import cdiv
 
 
 @configure(
@@ -26,7 +26,7 @@ def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfigurableArg, num_warps: Configura
     BLOCK_SIZE = next_power_of_2(input_d * num_channels)
     almost_half_d = BLOCK_SIZE // (2 * num_channels)
 
-    out_shape = [x.shape[0]] + [ceil(sh / 2) for sh in x.shape[2:]] + [x.shape[1]]
+    out_shape = [x.shape[0]] + [cdiv(sh, 2) for sh in x.shape[2:]] + [x.shape[1]]
     output = torch.empty(out_shape, dtype=torch.float16, device=x.device).permute(0, 4, 1, 2, 3)
 
     grid_batch, _, grid_H, grid_W, _ = output.shape

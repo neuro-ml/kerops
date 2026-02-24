@@ -1,10 +1,9 @@
-from math import ceil
-
 import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAddBackward
 from ...settings import ConfigurableArg, confexc, configure
+from ...utils import cdiv
 
 
 @confexc(KeyError)
@@ -47,7 +46,7 @@ def ReLULinearBackward(
 
     numel_no_channels = numel // out_channels
 
-    grid_size = ceil(numel_no_channels / (D_block * ILP))
+    grid_size = cdiv(numel_no_channels, D_block * ILP)
 
     bsize, _, H, W, D = grad.shape
     x_grad = torch.empty_like(x)

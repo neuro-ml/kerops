@@ -1,10 +1,9 @@
-from math import ceil
-
 import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAdd
 from ...settings import ConfigurableArg, confexc, configure
+from ...utils import cdiv
 
 
 @confexc(KeyError)
@@ -41,7 +40,7 @@ def ReLULinearAdd(
     assert add_other.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
-    grid_size = ceil(numel_no_channels / (D_block * ILP))
+    grid_size = cdiv(numel_no_channels, D_block * ILP)
 
     output = torch.empty_like(add_other)
 

@@ -1,10 +1,9 @@
-from math import ceil
-
 import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _LinBReLULinBackward
 from ...settings import ConfigurableArg, confexc, configure
+from ...utils import cdiv
 
 
 @confexc(KeyError)
@@ -43,7 +42,7 @@ def LinBReLULinBackward(
     assert grad.is_contiguous(memory_format=torch.channels_last_3d)
 
     numel_no_channels = numel // in_channels
-    grid_size = ceil(numel_no_channels / (D_block * ILP))
+    grid_size = cdiv(numel_no_channels, D_block * ILP)
 
     x_grad = torch.empty_like(x)
     weight_up_grad = torch.zeros([grid_size, in_channels, hidden_channels], dtype=torch.float16, device='cuda')

@@ -1,11 +1,12 @@
 from functools import reduce
-from math import ceil, floor, log2
+from math import floor, log2
 
 import torch
 from triton import next_power_of_2
 
 from ..kernels.bnrelu import _ApplyBNReLU_cl3d_backward_impl, _ApplyBNReLU_cl3d_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
+from ...utils import cdiv
 
 
 @configure(l1_cache_bytes=get_l1_cache, num_warps=8)
@@ -23,7 +24,7 @@ def ApplyBNReLU(x, weight, bias, *, l1_cache_bytes: ConfigurableArg, num_warps: 
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
     BLOCK_SIZE = num_channels * other
-    grid_size = ceil(numel / BLOCK_SIZE)
+    grid_size = cdiv(numel, BLOCK_SIZE)
 
     output = torch.empty_like(x)
 
@@ -59,7 +60,7 @@ def ApplyBNReLUBackward(x, weight, bias, grad, *, l1_cache_bytes: ConfigurableAr
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
     BLOCK_SIZE = num_channels * other
-    grid_size = ceil(numel / BLOCK_SIZE)
+    grid_size = cdiv(numel, BLOCK_SIZE)
 
     outgrad = torch.empty_like(x)
     weight_grad = torch.zeros_like(weight)
