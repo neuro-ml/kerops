@@ -2,15 +2,63 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.conv import _Conv_cl3d_impl_V5
-from ...settings import ConfigurableArg, configure
+from ...settings import ConfigurableArg, configure, confexc
 from ...utils import cdiv
+
+
+@confexc(KeyError)
+def num_warps(in_channels, out_channels):
+    return {
+        (16, 16): 4,
+        (16, 32): 4,
+        (32, 16): 4,
+        (32, 32): 2,
+        (32, 64): 4,
+        (64, 32): 1,
+        (64, 64): 2,
+        (64, 128): 4,
+        (128, 64): 4,
+        (128, 128): 4,
+    }[(in_channels, out_channels)]
+
+
+@confexc(KeyError)
+def d_block(in_channels, out_channels):
+    return {
+        (16, 16): 64,
+        (16, 32): 64,
+        (32, 16): 64,
+        (32, 32): 32,
+        (32, 64): 32,
+        (64, 32): 32,
+        (64, 64): 32,
+        (64, 128): 16,
+        (128, 64): 16,
+        (128, 128): 16,
+    }[(in_channels, out_channels)]
+
+
+@confexc(KeyError)
+def cin_block(in_channels, out_channels):
+    return {
+        (16, 16): 16,
+        (16, 32): 16,
+        (32, 16): 32,
+        (32, 32): 16,
+        (32, 64): 16,
+        (64, 32): 16,
+        (64, 64): 16,
+        (64, 128): 16,
+        (128, 64): 16,
+        (128, 128): 16,
+    }[(in_channels, out_channels)]
 
 
 @configure(
     ACCTYPE='float32',
-    num_warps=4,
-    D_BLOCK=64,
-    CIN_BLOCK=16,
+    num_warps=lambda weight: num_warps(*weight.shape[-2:]),
+    D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
+    CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
 )
 def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg):
     assert x.device == weight.device
