@@ -179,12 +179,13 @@ def _ApplyBNReLUConv_cl3d_impl(
     acc10 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
     acc11 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
 
+    zero = tl.zeros([1], dtype=tl.float16)
+
     for h_block in tl.static_range(0, 2):
         for w_block in tl.static_range(0, 2):
             for cin in tl.static_range(0, CIN_STEPS):
                 bn_weight = tl.load(bn_weight_ptr + in_channels_offset + cin * CIN_BLOCK)[None, :]
                 bn_bias = tl.load(bn_bias_ptr + in_channels_offset + cin * CIN_BLOCK)[None, :]
-                zero = tl.zeros([1], dtype=tl.float16)
 
                 for dd in tl.static_range(-1, 2):  # MB other order?
                     w_ptr = (
@@ -222,12 +223,12 @@ def _ApplyBNReLUConv_cl3d_impl(
                     
                     xs = [
                         [
-                            tl.maximum(tl.fma(tl.load(i_ptr + input_offset, mask=mask & m00, other=0.0), bn_weight, bn_bias), tl.zeros([1], dtype=tl.float16)),
-                            tl.maximum(tl.fma(tl.load(i_ptr + input_offset + IN_CHANNELS * D, mask=mask & m01, other=0.0), bn_weight, bn_bias), tl.zeros([1], dtype=tl.float16))
+                            tl.load(i_ptr + input_offset, mask=mask & m00),
+                            tl.load(i_ptr + input_offset + IN_CHANNELS * D, mask=mask & m01)
                         ],
                         [
-                            tl.maximum(tl.fma(tl.load(i_ptr + input_offset + IN_CHANNELS * D * W, mask=mask & m10, other=0.0), bn_weight, bn_bias), tl.zeros([1], dtype=tl.float16)),
-                            tl.maximum(tl.fma(tl.load(i_ptr + input_offset + IN_CHANNELS * D + IN_CHANNELS * D * W, mask=mask & m11, other=0.0), bn_weight, bn_bias), tl.zeros([1], dtype=tl.float16))
+                            tl.load(i_ptr + input_offset + IN_CHANNELS * D * W, mask=mask & m10),
+                            tl.load(i_ptr + input_offset + IN_CHANNELS * D + IN_CHANNELS * D * W, mask=mask & m11)
                         ]
                     ]
 
@@ -235,22 +236,36 @@ def _ApplyBNReLUConv_cl3d_impl(
                         for w in tl.static_range(0, 2):
                             # h_weight_idx = 2 * h_block + h - acc_abs_h + 1 - h_block <-- weights window shift
                             #                <---x_h------->           ^-- +1 since weight indexed from 0
-                            
+
+                            x = xs[h][w].to(tl.float32)
+                            x = x * bn_weight + bn_bias
+                            x = x.to(tl.float16)
+                            x = tl.maximum(x, zero)
+                            x = tl.where(
+                                mask
+                                & ((H_cell * 2 + h_block * 2 - 1 + h) < H)
+                                & ((H_cell * 2 + h_block * 2 - 1 + h) >= 0)
+                                & ((W_cell * 2 + w_block * 2 - 1 + w) < W)
+                                & ((W_cell * 2 + w_block * 2 - 1 + w) >= 0),
+                                x,
+                                zero
+                            )
+
                             # acc00
                             if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) < 3):
-                                acc00 += tl.dot(xs[h][w], weights[h_block + h][w_block + w])
+                                acc00 += tl.dot(x, weights[h_block + h][w_block + w])
 
                             # acc01
                             if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) >  0):
-                                acc01 += tl.dot(xs[h][w], weights[h_block + h][w_block + w - 1])
+                                acc01 += tl.dot(x, weights[h_block + h][w_block + w - 1])
 
                             # acc10
                             if ((h_block * 2 + h) > 0) & ((w_block * 2 + w) <  3):
-                                acc10 += tl.dot(xs[h][w], weights[h_block + h - 1][w_block + w])
+                                acc10 += tl.dot(x, weights[h_block + h - 1][w_block + w])
 
                             # acc11
                             if ((h_block * 2 + h) > 0) & ((w_block * 2 + w) > 0):
-                                acc11 += tl.dot(xs[h][w], weights[h_block + h - 1][w_block + w - 1])
+                                acc11 += tl.dot(x, weights[h_block + h - 1][w_block + w - 1])
 
     omask = d_offset_shifted < D
     tl.store(output_ptr + output_offset, acc00, mask=omask & ((W_cell * 2) < W) & ((H_cell * 2) < H))
