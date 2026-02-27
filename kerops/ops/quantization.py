@@ -4,7 +4,7 @@ import torch
 
 from ..kernels.quantization import _DequantUint8Window_impl, _QuantUint8Window_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
-from ...utils import cdiv
+from ..utils import cdiv
 
 
 @configure(num_warps=4, l1_cache_bytes=get_l1_cache)

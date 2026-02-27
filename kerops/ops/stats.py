@@ -6,7 +6,7 @@ from triton import next_power_of_2
 
 from ..kernels.stats import _Stats_cl3d_backward_impl, _Stats_cl3d_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
-from ...utils import cdiv
+from ..utils import cdiv
 
 
 @configure(l1_cache_bytes=get_l1_cache, num_warps=4)

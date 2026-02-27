@@ -5,7 +5,7 @@ from triton import next_power_of_2
 
 from ..kernels.avgpool import _AvgPoolCeilStats_cl3d_backward_impl, _AvgPoolCeilStats_cl3d_impl
 from ..settings import ConfigurableArg, configure, get_l1_cache
-from ...utils import cdiv
+from ..utils import cdiv
 
 
 @configure(

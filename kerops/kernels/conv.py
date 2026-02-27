@@ -136,12 +136,14 @@ def _Conv_cl3d_impl_V5(
 
 
 @triton.jit
-def _ApplyBNReLUConv_cl3d_impl(
+def _ApplyBNReLUConvStats_cl3d_impl(
     input_ptr,
     bn_weight_ptr,
     bn_bias_ptr,
     weight_ptr,
     output_ptr,
+    mean_ptr,
+    sqmean_ptr,
     H,
     W,
     D,
@@ -174,10 +176,16 @@ def _ApplyBNReLUConv_cl3d_impl(
     output_ptr += W_cell * 2 * OUT_CHANNELS * D
     output_ptr += H_cell * 2 * OUT_CHANNELS * D * W
 
+    mean_ptr += (W_cell + tl.num_programs(0) * H_cell + tl.num_programs(0) * tl.num_programs(1) * D_cell) * OUT_CHANNELS
+    sqmean_ptr += (W_cell + tl.num_programs(0) * H_cell + tl.num_programs(0) * tl.num_programs(1) * D_cell) * OUT_CHANNELS
+
     acc00 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
     acc01 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
     acc10 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
     acc11 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
+
+    mean = tl.zeros([OUT_CHANNELS], dtype=ACCTYPE)
+    sqmean = tl.zeros([OUT_CHANNELS], dtype=ACCTYPE)
 
     zero = tl.zeros([1], dtype=tl.float16)
 
@@ -221,6 +229,7 @@ def _ApplyBNReLUConv_cl3d_impl(
                     m10 = ((H_cell * 2 + h_block * 2) < H) & ((H_cell * 2 + h_block * 2) >= 0) & ((W_cell * 2 + w_block * 2 - 1) < W) & ((W_cell * 2 + w_block * 2 - 1) >= 0)
                     m11 = ((H_cell * 2 + h_block * 2) < H) & ((H_cell * 2 + h_block * 2) >= 0) & ((W_cell * 2 + w_block * 2) < W) & ((W_cell * 2 + w_block * 2) >= 0)
                     
+                    # other=0.0 is NOT necessary since it is filtrated via tl.where(mask & mXX, x, zero) <-> ReLU(x)
                     xs = [
                         [
                             tl.load(i_ptr + input_offset, mask=mask & m00),
@@ -250,7 +259,7 @@ def _ApplyBNReLUConv_cl3d_impl(
                             x = x * bn_weight + bn_bias
                             x = x.to(tl.float16)
                             x = tl.maximum(x, zero)
-                            x = tl.where(mask & valid, x, zero)
+                            x = tl.where(valid, x, zero)
 
                             # acc00
                             if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) < 3):
@@ -273,3 +282,22 @@ def _ApplyBNReLUConv_cl3d_impl(
     tl.store(output_ptr + output_offset + OUT_CHANNELS * D, acc01, mask=omask & ((W_cell * 2 + 1) < W) & ((H_cell * 2) < H))
     tl.store(output_ptr + output_offset + OUT_CHANNELS * D * W, acc10, mask=omask & ((W_cell * 2) < W) & ((H_cell * 2 + 1) < H))
     tl.store(output_ptr + output_offset + OUT_CHANNELS * D * W + OUT_CHANNELS * D, acc11, mask=omask & ((W_cell * 2 + 1) < W) & ((H_cell * 2 + 1) < H))
+    
+    mean = tl.sum(
+        tl.where(omask & ((W_cell * 2) < W) & ((H_cell * 2) < H), acc00, 0.0)
+        + tl.where(omask & ((W_cell * 2 + 1) < W) & ((H_cell * 2) < H),acc01, 0.0)
+        + tl.where(omask & ((W_cell * 2) < W) & ((H_cell * 2 + 1) < H), acc10, 0.0)
+        + tl.where(omask & ((W_cell * 2 + 1) < W) & ((H_cell * 2 + 1) < H), acc11, 0.0),
+        axis=0
+    )
+
+    sqmean = tl.sum(
+        tl.where(omask & ((W_cell * 2) < W) & ((H_cell * 2) < H), acc00 * acc00, 0.0)
+        + tl.where(omask & ((W_cell * 2 + 1) < W) & ((H_cell * 2) < H), acc01 * acc01, 0.0)
+        + tl.where(omask & ((W_cell * 2) < W) & ((H_cell * 2 + 1) < H), acc10 * acc10, 0.0)
+        + tl.where(omask & ((W_cell * 2 + 1) < W) & ((H_cell * 2 + 1) < H), acc11 * acc11, 0.0),
+        axis=0
+    )
+
+    tl.store(mean_ptr + out_channels_offset, mean)
+    tl.store(sqmean_ptr + out_channels_offset, sqmean)

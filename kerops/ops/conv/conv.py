@@ -1,7 +1,8 @@
+import numpy as np
 import torch
 from triton import language as tl, next_power_of_2
 
-from ...kernels.conv import _Conv_cl3d_impl_V5, _ApplyBNReLUConv_cl3d_impl
+from ...kernels.conv import _Conv_cl3d_impl_V5, _ApplyBNReLUConvStats_cl3d_impl
 from ...settings import ConfigurableArg, configure, confexc
 from ...utils import cdiv
 
@@ -112,7 +113,7 @@ def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D
     D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
     CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
 )
-def ApplyBNReLUConv3d(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg):
+def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg):
     assert x.device == weight.device == bn_weight.device == bn_bias.device
     assert x.is_cuda
 
@@ -140,14 +141,20 @@ def ApplyBNReLUConv3d(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfigurableArg
     ACCTYPE = {'float32': tl.float32, 'float16': tl.float16}[ACCTYPE]
     output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
     grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK))
+    mean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
+    sqmean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
 
-    for unbatched_x, unbatched_y in zip(x, output):
-        _ApplyBNReLUConv_cl3d_impl[grid](
+    numel_no_channels = bsize * H * W * D
+
+    for unbatched_x, unbatched_y, unbatched_mean, unbatched_sqmean in zip(x, output, mean, sqmean):
+        _ApplyBNReLUConvStats_cl3d_impl[grid](
             unbatched_x,
             bn_weight,
             bn_bias,
             weight,
             unbatched_y,
+            unbatched_mean,
+            unbatched_sqmean,
             H,
             W,
             D,
@@ -159,4 +166,4 @@ def ApplyBNReLUConv3d(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfigurableArg
             num_warps=num_warps,
         )
 
-    return output
+    return output, mean.sum(dim=(0, 1)) / numel_no_channels, sqmean.sum(dim=(0, 1)) / numel_no_channels
