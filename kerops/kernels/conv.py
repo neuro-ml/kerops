@@ -237,19 +237,20 @@ def _ApplyBNReLUConv_cl3d_impl(
                             # h_weight_idx = 2 * h_block + h - acc_abs_h + 1 - h_block <-- weights window shift
                             #                <---x_h------->           ^-- +1 since weight indexed from 0
 
+                            if h == 0 and w == 0:
+                                valid = mask & m00
+                            elif h == 0 and w == 1:
+                                valid = mask & m01
+                            elif h == 1 and w == 0:
+                                valid = mask & m10
+                            else:
+                                valid = mask & m11
+
                             x = xs[h][w].to(tl.float32)
                             x = x * bn_weight + bn_bias
                             x = x.to(tl.float16)
                             x = tl.maximum(x, zero)
-                            x = tl.where(
-                                mask
-                                & ((H_cell * 2 + h_block * 2 - 1 + h) < H)
-                                & ((H_cell * 2 + h_block * 2 - 1 + h) >= 0)
-                                & ((W_cell * 2 + w_block * 2 - 1 + w) < W)
-                                & ((W_cell * 2 + w_block * 2 - 1 + w) >= 0),
-                                x,
-                                zero
-                            )
+                            x = tl.where(mask & valid, x, zero)
 
                             # acc00
                             if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) < 3):
