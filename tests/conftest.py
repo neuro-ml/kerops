@@ -29,3 +29,13 @@ def other_2(request):
 @pytest.fixture(params=[2, 3, 13, 16, 32, 37, 53, 64])
 def other_3(request):
     return request.param
+
+
+@pytest.fixture(params=[16, 32, 64, 128])
+def conv_in_channels(request):
+    return request.param
+
+
+@pytest.fixture(params=[16, 32, 64, 128])
+def conv_out_channels(request):
+    return request.param
