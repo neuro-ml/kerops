@@ -16,7 +16,7 @@ def num_warps(in_channels, out_channels):
         (32, 32): 2,
         (32, 64): 4,
         (64, 32): 1,
-        (64, 64): 2,
+        (64, 64): 4,
         (64, 128): 4,
         (128, 64): 4,
         (128, 128): 4,
@@ -86,23 +86,22 @@ def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D
 
     ACCTYPE = {'float32': tl.float32, 'float16': tl.float16}[ACCTYPE]
     output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
-    grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK))
+    grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK) * bsize)
 
-    for unbatched_x, unbatched_y in zip(x, output):
-        _Conv_cl3d_impl_V5[grid](
-            unbatched_x,
-            weight,
-            unbatched_y,
-            H,
-            W,
-            D,
-            D_BLOCK=D_BLOCK,
-            ACCTYPE=ACCTYPE,
-            IN_CHANNELS=in_channels,
-            OUT_CHANNELS=out_channels,
-            CIN_BLOCK=CIN_BLOCK,
-            num_warps=num_warps,
-        )
+    _Conv_cl3d_impl_V5[grid](
+        x,
+        weight,
+        output,
+        H,
+        W,
+        D,
+        D_BLOCK=D_BLOCK,
+        ACCTYPE=ACCTYPE,
+        IN_CHANNELS=in_channels,
+        OUT_CHANNELS=out_channels,
+        CIN_BLOCK=CIN_BLOCK,
+        num_warps=num_warps,
+    )
 
     return output
 

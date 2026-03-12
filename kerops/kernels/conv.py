@@ -33,7 +33,10 @@ def _Conv_cl3d_impl_V5(
 ):
     W_cell = tl.program_id(0)
     H_cell = tl.program_id(1)
-    D_cell = tl.program_id(2)
+    BD_cell = tl.program_id(2)
+
+    B_cell = BD_cell // tl.cdiv(D, D_BLOCK)
+    D_cell = BD_cell % tl.cdiv(D, D_BLOCK)
 
     CIN_STEPS: tl.constexpr = IN_CHANNELS // CIN_BLOCK
     
@@ -49,10 +52,12 @@ def _Conv_cl3d_impl_V5(
     input_ptr += D_cell * D_BLOCK * IN_CHANNELS
     input_ptr += W_cell * 2 * IN_CHANNELS * D
     input_ptr += H_cell * 2 * IN_CHANNELS * D * W
+    input_ptr += B_cell * H * W * D * IN_CHANNELS
 
     output_ptr += D_cell * D_BLOCK * OUT_CHANNELS
     output_ptr += W_cell * 2 * OUT_CHANNELS * D
     output_ptr += H_cell * 2 * OUT_CHANNELS * D * W
+    output_ptr += B_cell * H * W * D * OUT_CHANNELS
 
     acc00 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
     acc01 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
