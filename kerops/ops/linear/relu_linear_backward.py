@@ -2,7 +2,7 @@ import torch
 from triton import next_power_of_2
 
 from ...kernels.linear import _ReLULinearAddBackward
-from ...settings import ConfigurableArg, confexc, configure
+from ...settings import ConfArg, confexc, configure
 from ...utils import cdiv
 
 
@@ -26,9 +26,9 @@ def ReLULinearBackward(
     grad,
     weight,
     *,
-    num_warps: ConfigurableArg,
-    D_block: ConfigurableArg,
-    ILP: ConfigurableArg,
+    num_warps: ConfArg,
+    D_block: ConfArg,
+    ILP: ConfArg,
 ):
     in_channels = x.shape[1]
     out_channels = grad.shape[1]

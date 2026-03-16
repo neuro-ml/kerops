@@ -2,7 +2,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.dw_conv import _DWConv_cl3d_impl
-from ...settings import ConfigurableArg, confexc, configure
+from ...settings import ConfArg, confexc, configure
 from ...utils import cdiv
 
 
@@ -21,7 +21,7 @@ def dblock(channels):
     num_warps=lambda x: warps(x.shape[1]),
     D_block=lambda x: dblock(x.shape[1]),
 )
-def DWConv(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_block: ConfigurableArg):
+def DWConv(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_block: ConfArg):
     channels = x.shape[1]
 
     assert x.ndim == 5

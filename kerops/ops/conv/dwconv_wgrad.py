@@ -2,7 +2,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.dw_conv import _DWConv_wgrad_cl3d_impl
-from ...settings import ConfigurableArg, confexc, configure
+from ...settings import ConfArg, confexc, configure
 from ...utils import cdiv
 
 
@@ -28,7 +28,7 @@ def ilp(channels):
     ILP=lambda x: ilp(x.shape[1]),
 )
 def DWConvWGRAD(
-    x, grad, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_block: ConfigurableArg, ILP: ConfigurableArg
+    x, grad, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_block: ConfArg, ILP: ConfArg
 ):
     channels = x.shape[1]
 

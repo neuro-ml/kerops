@@ -1,7 +1,7 @@
 from inspect import Parameter
 
 
-class ConfigurableArg:
+class ConfArg:
     pass
 
 
@@ -11,14 +11,14 @@ class CongiguratorError(Exception):
 
 def validate_signature(signature):
     for param in signature.parameters.values():
-        if param.annotation is ConfigurableArg and param.kind is not Parameter.KEYWORD_ONLY:
+        if param.annotation is ConfArg and param.kind is not Parameter.KEYWORD_ONLY:
             raise RuntimeError(f'ConfigurableArg must be keyword-only - {param.name}')
-        elif param.annotation is not ConfigurableArg and param.kind is Parameter.KEYWORD_ONLY:
+        elif param.annotation is not ConfArg and param.kind is Parameter.KEYWORD_ONLY:
             raise RuntimeError(f'non-ConfigurableArg must not be keyword-only - {param.name}')
 
 
 def get_config_args(signature):
-    return [param.name for param in signature.parameters.values() if param.annotation is ConfigurableArg]
+    return [param.name for param in signature.parameters.values() if param.annotation is ConfArg]
 
 
 def get_standard_args(signature):

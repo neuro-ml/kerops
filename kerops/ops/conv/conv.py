@@ -3,7 +3,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ...kernels.conv import _Conv_cl3d_impl_V6, _ApplyBNReLUConvStats_cl3d_impl
-from ...settings import ConfigurableArg, configure, confexc
+from ...settings import ConfArg, configure, confexc
 from ...utils import cdiv
 
 
@@ -63,7 +63,7 @@ def cin_block(in_channels, out_channels):
     LOAD_WEIGHT_FIRST=True,
     WEIGHT_MAJOR=False,
 )
-def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg, LOAD_WEIGHT_FIRST: ConfigurableArg, WEIGHT_MAJOR: ConfigurableArg):
+def Conv3d(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg, LOAD_WEIGHT_FIRST: ConfArg, WEIGHT_MAJOR: ConfArg):
     assert x.device == weight.device
     assert x.is_cuda
 
@@ -116,7 +116,7 @@ def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D
     D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
     CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
 )
-def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg):
+def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg):
     assert x.device == weight.device == bn_weight.device == bn_bias.device
     assert x.is_cuda
 
