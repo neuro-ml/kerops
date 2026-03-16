@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from triton import language as tl, next_power_of_2
 
-from ...kernels.conv import _Conv_cl3d_impl_V5, _ApplyBNReLUConvStats_cl3d_impl
+from ...kernels.conv import _Conv_cl3d_impl_V6, _ApplyBNReLUConvStats_cl3d_impl
 from ...settings import ConfigurableArg, configure, confexc
 from ...utils import cdiv
 
@@ -60,8 +60,10 @@ def cin_block(in_channels, out_channels):
     num_warps=lambda weight: num_warps(*weight.shape[-2:]),
     D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
     CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
+    LOAD_WEIGHT_FIRST=True,
+    WEIGHT_MAJOR=False,
 )
-def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg):
+def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D_BLOCK: ConfigurableArg, CIN_BLOCK: ConfigurableArg, LOAD_WEIGHT_FIRST: ConfigurableArg, WEIGHT_MAJOR: ConfigurableArg):
     assert x.device == weight.device
     assert x.is_cuda
 
@@ -88,7 +90,7 @@ def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D
     output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
     grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK) * bsize)
 
-    _Conv_cl3d_impl_V5[grid](
+    _Conv_cl3d_impl_V6[grid](
         x,
         weight,
         output,
@@ -100,6 +102,8 @@ def Conv3d(x, weight, *, ACCTYPE: ConfigurableArg, num_warps: ConfigurableArg, D
         IN_CHANNELS=in_channels,
         OUT_CHANNELS=out_channels,
         CIN_BLOCK=CIN_BLOCK,
+        LOAD_WEIGHT_FIRST=LOAD_WEIGHT_FIRST,
+        WEIGHT_MAJOR=WEIGHT_MAJOR,
         num_warps=num_warps,
     )
 

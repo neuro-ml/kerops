@@ -6,6 +6,7 @@ from triton import language as tl
 - Conv3dV3: `tl.max_contiguous(tl.multiple_of(channels_offset, CHANNELS), CHANNELS)`
 - Conv3dV4: Input channels BLOCKCING
 - Conv3dV5: output blocking by HW: 2x2 tile
+- Conv3dV6: loading order choice and weight-major alorithm choice
 
 No impact:
  - `x @ w` and `w @ x` orientation via ORDER parameter
@@ -15,10 +16,12 @@ No impact:
  - `x: [D_BLOCK, CHANNELS] -> x: [NEAR, D_BLOCK, CHANNELS]` where NEAR=4 represents neighbours; `w: [4, CHANNELS_IN, CHANNELS_OUT]`
  - Output channels BLOCKCING (why?)
  - Output channels BLOCKCING via expanding grid
+ - TMA (why???)
+ - tl.swizzle2d and a X-major tile with sizes 2 and 4
 """
 
 @triton.jit
-def _Conv_cl3d_impl_V5(
+def _Conv_cl3d_impl_V6(
     input_ptr,
     weight_ptr,
     output_ptr,
@@ -30,6 +33,8 @@ def _Conv_cl3d_impl_V5(
     IN_CHANNELS: tl.constexpr,
     OUT_CHANNELS: tl.constexpr,
     CIN_BLOCK: tl.constexpr,
+    WEIGHT_MAJOR: tl.constexpr,
+    LOAD_WEIGHT_FIRST: tl.constexpr,
 ):
     W_cell = tl.program_id(0)
     H_cell = tl.program_id(1)
@@ -64,74 +69,137 @@ def _Conv_cl3d_impl_V5(
     acc10 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
     acc11 = tl.zeros([D_BLOCK, OUT_CHANNELS], dtype=ACCTYPE)
 
-    for h_block in tl.static_range(0, 2):
-        for w_block in tl.static_range(0, 2):
-            for cin in tl.static_range(0, CIN_STEPS):
-                for dd in tl.static_range(-1, 2):  # MB other order?
-                    w_ptr = (
-                        weight_ptr
-                        + (dd + 1) * IN_CHANNELS * OUT_CHANNELS
-                        + w_block * IN_CHANNELS * OUT_CHANNELS * 3
-                        + h_block * IN_CHANNELS * OUT_CHANNELS * 9
-                        + cin * CIN_BLOCK * OUT_CHANNELS
-                    )
+    if WEIGHT_MAJOR:
+        for weight_h in tl.static_range(0, 3):
+            for weight_w in tl.static_range(0, 3):
+                for cin in tl.static_range(0, CIN_STEPS):
+                    for weight_d in tl.static_range(0, 3):
+                        w_ptr = (
+                            weight_ptr
+                            + weight_d * IN_CHANNELS * OUT_CHANNELS
+                            + weight_w * IN_CHANNELS * OUT_CHANNELS * 3
+                            + weight_h * IN_CHANNELS * OUT_CHANNELS * 9
+                            + cin * CIN_BLOCK * OUT_CHANNELS
+                        )
 
-                    weights = [
-                        [
-                            tl.load(w_ptr + weight_offset),
-                            tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 3),
-                        ],
-                        [
-                            tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 9),
-                            tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 12),
+                        if LOAD_WEIGHT_FIRST:
+                            weight = tl.load(w_ptr + weight_offset)
+
+                        i_ptr = (
+                            input_ptr
+                            + (weight_h - 1) * IN_CHANNELS * D * W
+                            + (weight_w - 1) * IN_CHANNELS * D
+                            + (weight_d - 1) * IN_CHANNELS
+                            + cin * CIN_BLOCK
+                        )
+
+                        mask = ((d_offset_shifted + weight_d - 1) < D) & ((d_offset_shifted + weight_d - 1) >= 0)
+
+                        m00 = ((H_cell * 2 + weight_h - 1) < H) & ((H_cell * 2 + weight_h - 1) >= 0) & ((W_cell * 2 + weight_w - 1) < W) & ((W_cell * 2 + weight_w - 1) >= 0)
+                        m01 = ((H_cell * 2 + weight_h - 1) < H) & ((H_cell * 2 + weight_h - 1) >= 0) & ((W_cell * 2 + weight_w) < W) & ((W_cell * 2 + weight_w) >= 0)
+                        m10 = ((H_cell * 2 + weight_h) < H) & ((H_cell * 2 + weight_h) >= 0) & ((W_cell * 2 + weight_w - 1) < W) & ((W_cell * 2 + weight_w - 1) >= 0)
+                        m11 = ((H_cell * 2 + weight_h) < H) & ((H_cell * 2 + weight_h) >= 0) & ((W_cell * 2 + weight_w) < W) & ((W_cell * 2 + weight_w) >= 0)
+
+                        xs = [
+                            [
+                                tl.load(i_ptr + input_offset, mask=mask & m00, other=0.0),
+                                tl.load(i_ptr + input_offset + IN_CHANNELS * D, mask=mask & m01, other=0.0)
+                            ],
+                            [
+                                tl.load(i_ptr + input_offset + IN_CHANNELS * D * W, mask=mask & m10, other=0.0),
+                                tl.load(i_ptr + input_offset + IN_CHANNELS * D + IN_CHANNELS * D * W, mask=mask & m11, other=0.0)
+                            ]
                         ]
-                    ]
-                    
-                    i_ptr = (
-                        input_ptr
-                        + (h_block * 2 - 1) * IN_CHANNELS * D * W
-                        + (w_block * 2 - 1) * IN_CHANNELS * D
-                        + dd * IN_CHANNELS
-                        + cin * CIN_BLOCK
-                    )
-                    mask = ((d_offset_shifted + dd) < D) & ((d_offset_shifted + dd) >= 0)
 
-                    m00 = ((H_cell * 2 + h_block * 2 - 1) < H) & ((H_cell * 2 + h_block * 2 - 1) >= 0) & ((W_cell * 2 + w_block * 2 - 1) < W) & ((W_cell * 2 + w_block * 2 - 1) >= 0)
-                    m01 = ((H_cell * 2 + h_block * 2 - 1) < H) & ((H_cell * 2 + h_block * 2 - 1) >= 0) & ((W_cell * 2 + w_block * 2) < W) & ((W_cell * 2 + w_block * 2) >= 0)
-                    m10 = ((H_cell * 2 + h_block * 2) < H) & ((H_cell * 2 + h_block * 2) >= 0) & ((W_cell * 2 + w_block * 2 - 1) < W) & ((W_cell * 2 + w_block * 2 - 1) >= 0)
-                    m11 = ((H_cell * 2 + h_block * 2) < H) & ((H_cell * 2 + h_block * 2) >= 0) & ((W_cell * 2 + w_block * 2) < W) & ((W_cell * 2 + w_block * 2) >= 0)
-                    
-                    xs = [
-                        [
-                            tl.load(i_ptr + input_offset, mask=mask & m00, other=0.0),
-                            tl.load(i_ptr + input_offset + IN_CHANNELS * D, mask=mask & m01, other=0.0)
-                        ],
-                        [
-                            tl.load(i_ptr + input_offset + IN_CHANNELS * D * W, mask=mask & m10, other=0.0),
-                            tl.load(i_ptr + input_offset + IN_CHANNELS * D + IN_CHANNELS * D * W, mask=mask & m11, other=0.0)
+                        if not LOAD_WEIGHT_FIRST:
+                            weight = tl.load(w_ptr + weight_offset)
+
+                        acc00 += tl.dot(xs[0][0], weight)
+                        acc01 += tl.dot(xs[0][1], weight)
+                        acc10 += tl.dot(xs[1][0], weight)
+                        acc11 += tl.dot(xs[1][1], weight)
+    else:
+        for h_block in tl.static_range(0, 2):
+            for w_block in tl.static_range(0, 2):
+                for cin in tl.static_range(0, CIN_STEPS):
+                    for dd in tl.static_range(-1, 2):  # MB other order?
+                        w_ptr = (
+                            weight_ptr
+                            + (dd + 1) * IN_CHANNELS * OUT_CHANNELS
+                            + w_block * IN_CHANNELS * OUT_CHANNELS * 3
+                            + h_block * IN_CHANNELS * OUT_CHANNELS * 9
+                            + cin * CIN_BLOCK * OUT_CHANNELS
+                        )
+
+                        if LOAD_WEIGHT_FIRST:
+                            weights = [
+                                [
+                                    tl.load(w_ptr + weight_offset),
+                                    tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 3),
+                                ],
+                                [
+                                    tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 9),
+                                    tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 12),
+                                ]
+                            ]
+                        
+                        i_ptr = (
+                            input_ptr
+                            + (h_block * 2 - 1) * IN_CHANNELS * D * W
+                            + (w_block * 2 - 1) * IN_CHANNELS * D
+                            + dd * IN_CHANNELS
+                            + cin * CIN_BLOCK
+                        )
+                        mask = ((d_offset_shifted + dd) < D) & ((d_offset_shifted + dd) >= 0)
+
+                        m00 = ((H_cell * 2 + h_block * 2 - 1) < H) & ((H_cell * 2 + h_block * 2 - 1) >= 0) & ((W_cell * 2 + w_block * 2 - 1) < W) & ((W_cell * 2 + w_block * 2 - 1) >= 0)
+                        m01 = ((H_cell * 2 + h_block * 2 - 1) < H) & ((H_cell * 2 + h_block * 2 - 1) >= 0) & ((W_cell * 2 + w_block * 2) < W) & ((W_cell * 2 + w_block * 2) >= 0)
+                        m10 = ((H_cell * 2 + h_block * 2) < H) & ((H_cell * 2 + h_block * 2) >= 0) & ((W_cell * 2 + w_block * 2 - 1) < W) & ((W_cell * 2 + w_block * 2 - 1) >= 0)
+                        m11 = ((H_cell * 2 + h_block * 2) < H) & ((H_cell * 2 + h_block * 2) >= 0) & ((W_cell * 2 + w_block * 2) < W) & ((W_cell * 2 + w_block * 2) >= 0)
+                        
+                        xs = [
+                            [
+                                tl.load(i_ptr + input_offset, mask=mask & m00, other=0.0),
+                                tl.load(i_ptr + input_offset + IN_CHANNELS * D, mask=mask & m01, other=0.0)
+                            ],
+                            [
+                                tl.load(i_ptr + input_offset + IN_CHANNELS * D * W, mask=mask & m10, other=0.0),
+                                tl.load(i_ptr + input_offset + IN_CHANNELS * D + IN_CHANNELS * D * W, mask=mask & m11, other=0.0)
+                            ]
                         ]
-                    ]
 
-                    for h in tl.static_range(0, 2):
-                        for w in tl.static_range(0, 2):
-                            # h_weight_idx = 2 * h_block + h - acc_abs_h + 1 - h_block <-- weights window shift
-                            #                <---x_h------->           ^-- +1 since weight indexed from 0
-                            
-                            # acc00
-                            if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) < 3):
-                                acc00 += tl.dot(xs[h][w], weights[h_block + h][w_block + w])
+                        if not LOAD_WEIGHT_FIRST:
+                            weights = [
+                                [
+                                    tl.load(w_ptr + weight_offset),
+                                    tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 3),
+                                ],
+                                [
+                                    tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 9),
+                                    tl.load(w_ptr + weight_offset + IN_CHANNELS * OUT_CHANNELS * 12),
+                                ]
+                            ]
 
-                            # acc01
-                            if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) >  0):
-                                acc01 += tl.dot(xs[h][w], weights[h_block + h][w_block + w - 1])
+                        for h in tl.static_range(0, 2):
+                            for w in tl.static_range(0, 2):
+                                # h_weight_idx = 2 * h_block + h - acc_abs_h + 1 - h_block <-- weights window shift
+                                #                <---x_h------->           ^-- +1 since weight indexed from 0
+                                
+                                # acc00
+                                if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) < 3):
+                                    acc00 += tl.dot(xs[h][w], weights[h_block + h][w_block + w])
 
-                            # acc10
-                            if ((h_block * 2 + h) > 0) & ((w_block * 2 + w) <  3):
-                                acc10 += tl.dot(xs[h][w], weights[h_block + h - 1][w_block + w])
+                                # acc01
+                                if ((h_block * 2 + h) < 3) & ((w_block * 2 + w) >  0):
+                                    acc01 += tl.dot(xs[h][w], weights[h_block + h][w_block + w - 1])
 
-                            # acc11
-                            if ((h_block * 2 + h) > 0) & ((w_block * 2 + w) > 0):
-                                acc11 += tl.dot(xs[h][w], weights[h_block + h - 1][w_block + w - 1])
+                                # acc10
+                                if ((h_block * 2 + h) > 0) & ((w_block * 2 + w) <  3):
+                                    acc10 += tl.dot(xs[h][w], weights[h_block + h - 1][w_block + w])
+
+                                # acc11
+                                if ((h_block * 2 + h) > 0) & ((w_block * 2 + w) > 0):
+                                    acc11 += tl.dot(xs[h][w], weights[h_block + h - 1][w_block + w - 1])
 
     omask = d_offset_shifted < D
     tl.store(output_ptr + output_offset, acc00, mask=omask & ((W_cell * 2) < W) & ((H_cell * 2) < H))
