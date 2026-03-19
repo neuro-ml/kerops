@@ -14,11 +14,11 @@ def num_warps(in_channels, out_channels):
         (16, 32): 4,
         (32, 16): 4,
         (32, 32): 2,
-        (32, 64): 4,
-        (64, 32): 1,
+        (32, 64): 2,
+        (64, 32): 2,
         (64, 64): 4,
-        (64, 128): 4,
-        (128, 64): 4,
+        (64, 128): 2,
+        (128, 64): 2,
         (128, 128): 4,
     }[(in_channels, out_channels)]
 
@@ -44,14 +44,30 @@ def cin_block(in_channels, out_channels):
     return {
         (16, 16): 16,
         (16, 32): 16,
-        (32, 16): 32,
+        (32, 16): 16,
         (32, 32): 16,
         (32, 64): 16,
         (64, 32): 16,
-        (64, 64): 16,
+        (64, 64): 32,
         (64, 128): 16,
         (128, 64): 16,
         (128, 128): 16,
+    }[(in_channels, out_channels)]
+
+
+@confexc(KeyError)
+def weight_major(in_channels, out_channels):
+    return {
+        (16, 16): False,
+        (16, 32): True,
+        (32, 16): False,
+        (32, 32): False,
+        (32, 64): True,
+        (64, 32): False,
+        (64, 64): True,
+        (64, 128): True,
+        (128, 64): True,
+        (128, 128): True,
     }[(in_channels, out_channels)]
 
 
@@ -61,7 +77,7 @@ def cin_block(in_channels, out_channels):
     D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
     CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
     LOAD_WEIGHT_FIRST=True,
-    WEIGHT_MAJOR=False,
+    WEIGHT_MAJOR=lambda weight: weight_major(*weight.shape[-2:]),
 )
 def Conv3d(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg, LOAD_WEIGHT_FIRST: ConfArg, WEIGHT_MAJOR: ConfArg):
     assert x.device == weight.device
