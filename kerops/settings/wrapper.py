@@ -1,107 +1,94 @@
-import inspect
+from inspect import Parameter, signature as get_signature
 from functools import wraps
 from typing import Callable
 
-from .utils import CongiguratorError, configs_match, get_config_args, get_standard_args, validate_signature
+from .kernel_config import KernelConfig
 
 
-class EmptyKwarg:
+class ConfArg:
     pass
 
 
+EmptyKwarg = object()
+
+
 class ConfiguredFunction:
-    def __init__(self, origin_function, signature, configurable_args, usual_args, **configurators):
-        self.origin_function = origin_function
+    def __init__(self, function: Callable, kernel_config: KernelConfig):
+        self.function = function
+
+        signature = get_signature(function)
+        for param in signature.parameters.values():
+            if param.kind is Parameter.VAR_POSITIONAL:
+                raise TypeError(f'VAR_POSITIONAL (*args) is not supported - {param.name}')
+
+            elif param.annotation is ConfArg:
+                if param.kind is not Parameter.KEYWORD_ONLY:
+                    raise TypeError(f'ConfArg must be keyword-only - {param.name}')
+                
+                if param.default is not param.empty:
+                    raise TypeError(f'ConfArg must not have default value - {param.name}:{param.default}')
+
+            elif param.annotation is not ConfArg and param.kind is Parameter.KEYWORD_ONLY:
+                raise TypeError(f'non-ConfArg must not be keyword-only - {param.name}')
+
         self.signature = signature
-        self.configurable_args = configurable_args
-        self.usual_args = usual_args
-        self.configurators = configurators
 
-    def __repr__(self):
-        def format_configurator(configurator):
-            if isinstance(configurator, Callable):
-                params = ', '.join(inspect.signature(configurator).parameters)
-                return f'Configurator({params})'
-            return str(configurator)
+        self.confargs = [param.name for param in self.signature.parameters.values() if param.annotation is ConfArg]
+        self.usual_args = [param.name for param in self.signature.parameters.values() if param.annotation is not ConfArg]
 
-        configurators_repr = '\n'.join(
-            f'{confarg}: {format_configurator(configurator)}' for confarg, configurator in self.configurators.items()
-        )
+        self.register_kernel_config(kernel_config)
 
-        return f'{self.origin_function.__name__}{self.signature}\n{configurators_repr}'
+    def register_kernel_config(self, kernel_config: KernelConfig):
+        configured_arg_names = kernel_config.confarg_names
+        input_arg_names = kernel_config.arg_names
 
-    @staticmethod
-    def configurator_call(args, configurator, usual_args):
-        if isinstance(configurator, Callable):
-            conf_sign = inspect.signature(configurator)
+        if set(self.confargs) != set(configured_arg_names):
+            raise ValueError(
+                f'Configuration mismatch, confargs={self.confargs}, configured_arg_names={configured_arg_names}'
+            )
 
-            # take argnames from configurator, map args with respect to origin function's argnames
-            conf_args = [args[usual_args.index(param.name)] for param in conf_sign.parameters.values()]
+        for arg in input_arg_names:
+            if arg not in self.usual_args:
+                raise ValueError(f"{kernel_config.__class__.__name__} expects unknown arg: {arg}")
 
-            return configurator(*conf_args)
-        else:
-            return configurator
+        self.kernel_config = kernel_config
+        self.kernel_input_arg_indices = [self.usual_args.index(arg) for arg in input_arg_names]
+
+    def kernel_config_call(self, usual_args):
+        return self.kernel_config(*(usual_args[idx] for idx in self.kernel_input_arg_indices))
 
     def __call__(self, *args, **kwargs):
-        tmp_kwargs = {**{arg: EmptyKwarg for arg in self.configurable_args}, **kwargs}
+        # all confargs and, maybe, some usual args passed as keyword-argument
+        full_kwargs = {arg: EmptyKwarg for arg in self.confargs}
+        full_kwargs.update(kwargs)
 
-        bind = self.signature.bind(*args, **tmp_kwargs)
+        bind = self.signature.bind(*args, **full_kwargs)
         bind.apply_defaults()
 
-        configured_kwargs = {
-            k: (
-                self.configurator_call(bind.args, self.configurators[k], self.usual_args)
-                if input_v is EmptyKwarg
-                else input_v
-            )
-            for k, input_v in bind.kwargs.items()
-        }
+        # after binding kwargs consists of ConfArgs ONLY, and kwargs.keys() == self.confargs
+        # args does no contain ant ConfArg
+        args, kwargs = bind.args, bind.kwargs
 
-        return self.origin_function(*bind.args, **configured_kwargs)
+        # if all ConfArgs are overriden there is no reason to call kernel_config
+        if any(v is EmptyKwarg for v in kwargs.values()):
+            # configuration - ConfArg is configured in priority order for overriden values from kwargs
+            configured_kwargs = self.kernel_config_call(bind.args)
 
-    def can_be_configured(self, **kwargs):
-        try:
-            for configurator in self.configurators.values():
-                if isinstance(configurator, Callable):
-                    confargs = inspect.signature(configurator).parameters
-                    _ = configurator(**{arg: kwargs[arg] for arg in confargs})
+            configured_kwargs = {
+                k: configured_kwargs[k] if v is EmptyKwarg else v
+                for k, v in kwargs.items()
+            }
+        else:
+            configured_kwargs = kwargs
 
-        except CongiguratorError:
-            return False
+        return self.function(*args, **configured_kwargs)
 
-        return True
+    @classmethod
+    def configure(cls, kernel_config: KernelConfig):
+        def wrapper(function: Callable):
+            return wraps(function)(cls(function, kernel_config))
 
-    def reconfigure(self, **new_configurators):
-        configs_match(self.configurable_args, new_configurators.keys())
-        self.configurators = new_configurators
+        return wrapper
 
-
-def configure(**configurators):
-    def wrapper(function):
-        signature = inspect.signature(function)
-
-        validate_signature(signature)
-
-        configurable_args = get_config_args(signature)
-
-        usual_args = get_standard_args(signature)
-
-        configs_match(configurable_args, configurators.keys())
-
-        return wraps(function)(ConfiguredFunction(function, signature, configurable_args, usual_args, **configurators))
-
-    return wrapper
-
-
-def confexc(*exceptions):
-    def wrapper(configurator):
-        @wraps(configurator)
-        def wrapped(*args, **kwargs):
-            try:
-                return configurator(*args, **kwargs)
-            except exceptions as e:
-                raise CongiguratorError(str(e))
-
-        return wrapped
-
-    return wrapper
+    def __repr__(self):
+        return f'{self.function.__name__}{self.signature}\n{self.kernel_config}'
