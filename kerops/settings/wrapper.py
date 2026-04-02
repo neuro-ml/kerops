@@ -2,7 +2,7 @@ from inspect import Parameter, signature as get_signature
 from functools import wraps
 from typing import Callable
 
-from .kernel_config import KernelConfig
+from .kernel_config import KernelConfigBase
 
 
 class ConfArg:
@@ -13,7 +13,7 @@ EmptyKwarg = object()
 
 
 class ConfiguredFunction:
-    def __init__(self, function: Callable, kernel_config: KernelConfig):
+    def __init__(self, function: Callable, kernel_config: KernelConfigBase):
         self.function = function
 
         signature = get_signature(function)
@@ -38,7 +38,7 @@ class ConfiguredFunction:
 
         self.register_kernel_config(kernel_config)
 
-    def register_kernel_config(self, kernel_config: KernelConfig):
+    def register_kernel_config(self, kernel_config: KernelConfigBase):
         configured_arg_names = kernel_config.confarg_names
         input_arg_names = kernel_config.arg_names
 
@@ -84,7 +84,7 @@ class ConfiguredFunction:
         return self.function(*args, **configured_kwargs)
 
     @classmethod
-    def configure(cls, kernel_config: KernelConfig):
+    def configure(cls, kernel_config: KernelConfigBase):
         def wrapper(function: Callable):
             return wraps(function)(cls(function, kernel_config))
 

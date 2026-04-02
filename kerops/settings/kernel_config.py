@@ -5,21 +5,10 @@ from typing import Callable, Any
 from inspect import signature as get_signature
 from warnings import warn
 
-from torch import Tensor
-from torch.cuda import get_device_name
+from .utils import get_device_name_from_args
 
 
 class KernelConfigBase(ABC):
-    @property
-    @abstractmethod
-    def arg_names(self) -> list[str]:
-        ...
-
-    @property
-    @abstractmethod
-    def confarg_names(self) -> list[str]:
-        ...
-
     @abstractmethod
     def __call__(self, *input_args) -> dict[str, Any]:
         ...
@@ -185,18 +174,8 @@ class TableKernelConfig(KernelConfigBase):
                 f'fallback_device={self.fallback_device!r} not found in loaded configs: {list(self._configs)}'
             )
 
-    def get_device_name_from_args(self, *input_args):
-        device_indices = {arg.device.index for arg in input_args if isinstance (arg, Tensor) and arg.device.type == 'cuda'}
-
-        if len(device_indices) == 1:
-            return get_device_name(device_indices.pop())
-        elif len(device_indices) == 0:
-            raise RuntimeError('Cannot configure due to non-cuda args')
-        else:
-            raise RuntimeError(f'Expected all tensors to be on the same GPU, got CUDA-devices:{device_indices}')
-
     def __call__(self, *input_args) -> dict[str, Any]:
-        device = self.get_device_name_from_args(*input_args)
+        device = get_device_name_from_args(*input_args)
 
         problem_sizes = self.args_to_problem_sizes(*input_args)
 
