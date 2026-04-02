@@ -97,7 +97,7 @@ def autotune(
     n_jobs_precompile: int = 4,
     warmup: int = 25,
     sleep_ms: int = 100,
-    n_iters: int = 50,
+    n_iters: int = 100,
     quantiles: tuple = (20, 80),
     **specset,
 ):

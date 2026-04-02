@@ -2,84 +2,22 @@ import numpy as np
 import torch
 from triton import language as tl, next_power_of_2
 
+from ..assets import ASSETS_ROOT
 from ...kernels.conv import _Conv_cl3d_impl_V6, _ApplyBNReLUConvStats_cl3d_impl
-from ...settings import ConfArg, configure, confexc
+from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
-@confexc(KeyError)
-def num_warps(in_channels, out_channels):
-    return {
-        (16, 16): 4,
-        (16, 32): 4,
-        (32, 16): 4,
-        (32, 32): 2,
-        (32, 64): 2,
-        (64, 32): 2,
-        (64, 64): 4,
-        (64, 128): 2,
-        (128, 64): 2,
-        (128, 128): 4,
-    }[(in_channels, out_channels)]
-
-
-@confexc(KeyError)
-def d_block(in_channels, out_channels):
-    return {
-        (16, 16): 64,
-        (16, 32): 64,
-        (32, 16): 64,
-        (32, 32): 32,
-        (32, 64): 32,
-        (64, 32): 32,
-        (64, 64): 32,
-        (64, 128): 16,
-        (128, 64): 16,
-        (128, 128): 16,
-    }[(in_channels, out_channels)]
-
-
-@confexc(KeyError)
-def cin_block(in_channels, out_channels):
-    return {
-        (16, 16): 16,
-        (16, 32): 16,
-        (32, 16): 16,
-        (32, 32): 16,
-        (32, 64): 16,
-        (64, 32): 16,
-        (64, 64): 32,
-        (64, 128): 16,
-        (128, 64): 16,
-        (128, 128): 16,
-    }[(in_channels, out_channels)]
-
-
-@confexc(KeyError)
-def weight_major(in_channels, out_channels):
-    return {
-        (16, 16): False,
-        (16, 32): True,
-        (32, 16): False,
-        (32, 32): False,
-        (32, 64): True,
-        (64, 32): False,
-        (64, 64): True,
-        (64, 128): True,
-        (128, 64): True,
-        (128, 128): True,
-    }[(in_channels, out_channels)]
-
-
-@configure(
-    ACCTYPE='float32',
-    num_warps=lambda weight: num_warps(*weight.shape[-2:]),
-    D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
-    CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
-    LOAD_WEIGHT_FIRST=True,
-    WEIGHT_MAJOR=lambda weight: weight_major(*weight.shape[-2:]),
+conv3d_config = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['num_warps', 'D_BLOCK', 'CIN_BLOCK', 'WEIGHT_MAJOR', 'LOAD_WEIGHT_FIRST'],
+    args_to_problem_sizes=lambda weight: tuple(weight.shape[-2:]),
+    toml_path=ASSETS_ROOT / 'Conv3d.toml'
 )
-def Conv3d(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg, LOAD_WEIGHT_FIRST: ConfArg, WEIGHT_MAJOR: ConfArg):
+
+
+@ConfiguredFunction.configure(conv3d_config)
+def Conv3d(x, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg, LOAD_WEIGHT_FIRST: ConfArg, WEIGHT_MAJOR: ConfArg):
     assert x.device == weight.device
     assert x.is_cuda
 
@@ -100,9 +38,8 @@ def Conv3d(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg,
     assert D_BLOCK == next_power_of_2(D_BLOCK)
     assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
     assert CIN_BLOCK <= in_channels
-    assert ACCTYPE in ('float16', 'float32')
 
-    ACCTYPE = {'float32': tl.float32, 'float16': tl.float16}[ACCTYPE]
+    ACCTYPE = tl.float32
     output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
     grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK) * bsize)
 
@@ -126,13 +63,16 @@ def Conv3d(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg,
     return output
 
 
-@configure(
-    ACCTYPE='float32',
-    num_warps=lambda weight: num_warps(*weight.shape[-2:]),
-    D_BLOCK=lambda weight: d_block(*weight.shape[-2:]),
-    CIN_BLOCK=lambda weight: cin_block(*weight.shape[-2:]),
+bnreluconv3d_config = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['D_BLOCK', 'num_warps', 'CIN_BLOCK'],
+    args_to_problem_sizes=lambda weight: tuple(weight.shape[-2:]),
+    toml_path=ASSETS_ROOT / 'BNReLUConv3d.toml'
 )
-def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg):
+
+
+@ConfiguredFunction.configure(bnreluconv3d_config)
+def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg):
     assert x.device == weight.device == bn_weight.device == bn_bias.device
     assert x.is_cuda
 
@@ -155,9 +95,8 @@ def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfArg, n
     assert D_BLOCK == next_power_of_2(D_BLOCK)
     assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
     assert CIN_BLOCK <= in_channels
-    assert ACCTYPE in ('float16', 'float32')
 
-    ACCTYPE = {'float32': tl.float32, 'float16': tl.float16}[ACCTYPE]
+    ACCTYPE = tl.float32
     output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
     grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK))
     mean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
@@ -186,3 +125,93 @@ def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, ACCTYPE: ConfArg, n
         )
 
     return output, mean.sum(dim=(0, 1)) / numel_no_channels, sqmean.sum(dim=(0, 1)) / numel_no_channels
+
+
+def generate_inputs_conv(problem_sizes, device='cuda'):
+    in_channels, out_channels = problem_sizes['in_channels'], problem_sizes['out_channels']
+
+    if in_channels <= 32 and out_channels <= 32:
+        base = 128
+    elif in_channels <= 64 and out_channels <= 64:
+        base = 96
+    else:
+        base = 64
+
+    x = torch.randn(1, in_channels, base, base, base, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    w = torch.randn(3, 3, 3, in_channels, out_channels, device=device, dtype=torch.float16)
+
+    return x, w
+
+
+def generate_inputs_bnreluconv(problem_sizes, device='cuda'):
+    x, w = generate_inputs_conv(problem_sizes, device)
+
+    in_channels = problem_sizes['in_channels']
+    bn_weight = torch.randn(in_channels, device=device, dtype=torch.float32)
+    bn_bias = torch.randn(in_channels, device=device, dtype=torch.float32)
+
+    return x, bn_weight, bn_bias, w
+
+
+def pruning_rule(problem_size, named_config):
+    D_BLOCK = named_config['D_BLOCK']
+    CIN_BLOCK = named_config['CIN_BLOCK']
+
+    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
+
+    if in_channels >= 32 and out_channels >= 32 and D_BLOCK > 32:
+        return False
+
+    if (in_channels >= 128 or out_channels >= 128) and D_BLOCK > 16:
+        return False
+
+    if CIN_BLOCK > in_channels:
+        return False
+
+    return True
+
+
+def autotune_conv(toml_path, **autotune_kwargs):
+    channels = [2 ** i for i in range(4, 8)]
+    problem_sizes = [
+        {'in_channels': cin, 'out_channels': cout}
+        for cin in channels
+        for cout in channels
+        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
+    ]
+
+    autotune(
+        getattr(Conv3d, 'function', Conv3d),
+        generate_inputs_conv,
+        problem_sizes,
+        pruning_rule,
+        toml_path,
+        **autotune_kwargs,
+        num_warps=[2, 4],
+        D_BLOCK=[16, 32, 64],
+        CIN_BLOCK=[16, 32, 64],
+        LOAD_WEIGHT_FIRST=[True, False],
+        WEIGHT_MAJOR=[True, False]
+    )
+
+
+def autotune_bnreluconv(toml_path, **autotune_kwargs):
+    channels = [2 ** i for i in range(4, 8)]
+    problem_sizes = [
+        {'in_channels': cin, 'out_channels': cout}
+        for cin in channels
+        for cout in channels
+        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
+    ]
+
+    autotune(
+        getattr(ApplyBNReLUConv3dStats, 'function', ApplyBNReLUConv3dStats),
+        generate_inputs_bnreluconv,
+        problem_sizes,
+        pruning_rule,
+        toml_path,
+        **autotune_kwargs,
+        num_warps=[2, 4],
+        D_BLOCK=[16, 32, 64],
+        CIN_BLOCK=[16, 32, 64],
+    )

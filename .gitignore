@@ -26,3 +26,5 @@ pip-delete-this-directory.txt
 # Profiling
 *.ncu-rep
 PROF/
+
+.vscode
