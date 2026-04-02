@@ -1,0 +1,93 @@
+[meta]
+problem_size_names = ['in_channels', 'out_channels']
+
+["NVIDIA GeForce RTX 5070"]
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [16, 16]
+  num_warps = 1
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 16
+  COUT_BLOCK = 16
+  SWAP_GRAD_WITH_INPUT = false
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [16, 32]
+  num_warps = 1
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 16
+  COUT_BLOCK = 32
+  SWAP_GRAD_WITH_INPUT = false
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32, 16]
+  num_warps = 1
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 16
+  COUT_BLOCK = 32
+  SWAP_GRAD_WITH_INPUT = true
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32, 32]
+  num_warps = 2
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 32
+  COUT_BLOCK = 32
+  SWAP_GRAD_WITH_INPUT = false
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32, 64]
+  num_warps = 2
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 16
+  COUT_BLOCK = 64
+  SWAP_GRAD_WITH_INPUT = false
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64, 32]
+  num_warps = 2
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 16
+  COUT_BLOCK = 64
+  SWAP_GRAD_WITH_INPUT = true
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64, 64]
+  num_warps = 2
+  D_BLOCK = 32
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 32
+  COUT_BLOCK = 64
+  SWAP_GRAD_WITH_INPUT = false
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64, 128]
+  num_warps = 4
+  D_BLOCK = 16
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 64
+  COUT_BLOCK = 64
+  SWAP_GRAD_WITH_INPUT = false
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [128, 64]
+  num_warps = 4
+  D_BLOCK = 16
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 64
+  COUT_BLOCK = 64
+  SWAP_GRAD_WITH_INPUT = true
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [128, 128]
+  num_warps = 4
+  D_BLOCK = 16
+  REDUCTION_FACTOR = 32
+  CIN_BLOCK = 64
+  COUT_BLOCK = 64
+  SWAP_GRAD_WITH_INPUT = false

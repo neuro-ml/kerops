@@ -1,77 +1,32 @@
 import torch
 from triton import language as tl, next_power_of_2
 
+from ..assets import ASSETS_ROOT
 from ...kernels.conv import _Conv_wgrad_cl3d_impl_V2
-from ...settings import ConfArg, configure, confexc
+from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
-@confexc(KeyError)
-def num_warps(in_channels, out_channels):
-    # BE AWARE of swap_grad_with_input - it permutes grad with x
-    return {
-        (16, 16): 1,
-        (16, 32): 2,
-        (32, 16): 2,
-        (32, 32): 2,
-        (32, 64): 4,
-        (64, 32): 4,
-        (64, 64): 2,
-        (64, 128): 4,
-        (128, 64): 4,
-        (128, 128): 4,
-    }[(in_channels, out_channels)]
-
-
-@confexc(KeyError)
-def CIN_BLOCK(in_channels, out_channels):
-    # BE AWARE of swap_grad_with_input - it permutes grad with x
-    return {
-        (16, 16): 16,
-        (16, 32): 16,
-        (32, 16): 16,
-        (32, 32): 32,
-        (32, 64): 16,
-        (64, 32): 16,
-        (64, 64): 32,
-        (64, 128): 32,
-        (128, 64): 32,
-        (128, 128): 16,
-    }[(in_channels, out_channels)]
-
-
-@confexc(KeyError)
-def COUT_BLOCK(in_channels, out_channels):
-    # BE AWARE of swap_grad_with_input - it permutes grad with x
-    return {
-        (16, 16): 16,
-        (16, 32): 32,
-        (32, 16): 32,
-        (32, 32): 32,
-        (32, 64): 64,
-        (64, 32): 64,
-        (64, 64): 64,
-        (64, 128): 128,
-        (128, 64): 128,
-        (128, 128): 128,
-    }[(in_channels, out_channels)]
-
-
-# TODO: looks like this trick can be fixed with a better algorithm.
-def swap_grad_with_input(in_channels, out_channels):
-    return out_channels < in_channels
-
-
-@configure(
-    ACCTYPE='float32',
-    num_warps=lambda grad, x: num_warps(x.shape[1], grad.shape[1]),
-    REDUCTION_FACTOR=32,
-    CIN_BLOCK=lambda grad, x: CIN_BLOCK(x.shape[1], grad.shape[1]),
-    COUT_BLOCK=lambda grad, x: COUT_BLOCK(x.shape[1], grad.shape[1]),
-    D_BLOCK=32,
-    SWAP_GRAD_WITH_INPUT=lambda grad, x: swap_grad_with_input(x.shape[1], grad.shape[1])
+conv3d_wgrad_config = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['num_warps', 'D_BLOCK', 'REDUCTION_FACTOR', 'CIN_BLOCK', 'COUT_BLOCK', 'SWAP_GRAD_WITH_INPUT'],
+    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    toml_path=ASSETS_ROOT / 'Conv3dWgrad.toml'
 )
-def Conv3dWgrad(grad, x, *, D_BLOCK: ConfArg, ACCTYPE: ConfArg, num_warps: ConfArg, REDUCTION_FACTOR: ConfArg, CIN_BLOCK: ConfArg, COUT_BLOCK: ConfArg, SWAP_GRAD_WITH_INPUT: ConfArg):
+
+
+@ConfiguredFunction.configure(conv3d_wgrad_config)
+def Conv3dWgrad(
+    grad,
+    x,
+    *,
+    num_warps: ConfArg,
+    D_BLOCK: ConfArg,
+    REDUCTION_FACTOR: ConfArg,
+    CIN_BLOCK: ConfArg,
+    COUT_BLOCK: ConfArg,
+    SWAP_GRAD_WITH_INPUT: ConfArg
+):
     if SWAP_GRAD_WITH_INPUT:
         grad, x = x, grad
 
@@ -91,14 +46,13 @@ def Conv3dWgrad(grad, x, *, D_BLOCK: ConfArg, ACCTYPE: ConfArg, num_warps: ConfA
     assert x.dtype == grad.dtype == torch.float16
 
     assert D_BLOCK == next_power_of_2(D_BLOCK)
-    assert ACCTYPE in ('float16', 'float32')
     assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
     assert CIN_BLOCK <= in_channels
     assert COUT_BLOCK == next_power_of_2(COUT_BLOCK)
     assert COUT_BLOCK <= out_channels
     assert isinstance(REDUCTION_FACTOR, int)
 
-    ACCTYPE = {'float32': tl.float32, 'float16': tl.float16}[ACCTYPE]
+    ACCTYPE = tl.float32
     num_buffers = cdiv(xW, REDUCTION_FACTOR * 2) * cdiv(xH, REDUCTION_FACTOR * 2) * cdiv(xD, D_BLOCK * REDUCTION_FACTOR) * xbsize
     weight_grad = torch.zeros([num_buffers, 3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
     grid = (cdiv(xW, 2) * cdiv(out_channels, COUT_BLOCK), cdiv(xH, 2), cdiv(xD, D_BLOCK) * xbsize)
@@ -128,3 +82,67 @@ def Conv3dWgrad(grad, x, *, D_BLOCK: ConfArg, ACCTYPE: ConfArg, num_warps: ConfA
         weight_grad = weight_grad.contiguous()
 
     return weight_grad
+
+
+def pruning_rule(problem_size, named_config):
+    D_BLOCK = named_config['D_BLOCK']
+    CIN_BLOCK = named_config['CIN_BLOCK']
+    COUT_BLOCK = named_config['COUT_BLOCK']
+    SWAP_GRAD_WITH_INPUT = named_config['SWAP_GRAD_WITH_INPUT']
+
+    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
+
+    if in_channels >= 32 and out_channels >= 32 and D_BLOCK > 32:
+        return False
+
+    if (in_channels >= 128 or out_channels >= 128) and D_BLOCK > 16:
+        return False
+
+    if (CIN_BLOCK > in_channels and not SWAP_GRAD_WITH_INPUT) or (CIN_BLOCK > out_channels and SWAP_GRAD_WITH_INPUT):
+        return False
+
+    if (COUT_BLOCK > out_channels and not SWAP_GRAD_WITH_INPUT) or (COUT_BLOCK > in_channels and SWAP_GRAD_WITH_INPUT):
+        return False
+
+    return True
+
+
+def generate_inputs_conv_wgrad(problem_sizes):
+    in_channels, out_channels = problem_sizes['in_channels'], problem_sizes['out_channels']
+
+    if in_channels <= 32 and out_channels <= 32:
+        base = 128
+    elif in_channels <= 64 and out_channels <= 64:
+        base = 96
+    else:
+        base = 64
+
+    x = torch.randn(1, in_channels, base, base, base, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    grad = torch.randn(1, out_channels, base, base, base, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+
+    return grad, x
+
+
+def autotune_conv_wgrad(toml_path, **autotune_kwargs):
+    channels = [2 ** i for i in range(4, 8)]
+    problem_sizes = [
+        {'in_channels': cin, 'out_channels': cout}
+        for cin in channels
+        for cout in channels
+        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
+    ]
+
+    autotune(
+        getattr(Conv3dWgrad, 'function', Conv3dWgrad),
+        generate_inputs_conv_wgrad,
+        problem_sizes,
+        pruning_rule,
+        toml_path,
+        **autotune_kwargs,
+        num_warps=[1, 2, 4],
+        D_BLOCK=[16, 32],
+        REDUCTION_FACTOR=[32],
+        CIN_BLOCK=[16, 32, 64],
+        COUT_BLOCK=[16, 32, 64],
+        SWAP_GRAD_WITH_INPUT=[False, True]
+    )
