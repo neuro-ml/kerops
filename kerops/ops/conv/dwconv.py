@@ -1,27 +1,22 @@
 import torch
 from triton import language as tl, next_power_of_2
 
+from ..assets import ASSETS_ROOT
 from ...kernels.dw_conv import _DWConv_cl3d_impl
-from ...settings import ConfArg, confexc, configure
+from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
-@confexc(KeyError)
-def warps(channels):
-    return {8: 1, 16: 2, 32: 2, 64: 2, 128: 4}[channels]
-
-
-@confexc(KeyError)
-def dblock(channels):
-    return {8: 32, 16: 32, 32: 16, 64: 8, 128: 8}[channels]
-
-
-@configure(
-    ACCTYPE='float32',
-    num_warps=lambda x: warps(x.shape[1]),
-    D_block=lambda x: dblock(x.shape[1]),
+dwconv_config = TableKernelConfig(
+    problem_size_names=['channels'],
+    confarg_names=['num_warps', 'D_BLOCK'],
+    args_to_problem_sizes=lambda weight: (weight.shape[-1], ),
+    toml_path=ASSETS_ROOT / 'DWConv.toml'
 )
-def DWConv(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_block: ConfArg):
+
+
+@ConfiguredFunction.configure(dwconv_config)
+def DWConv(x, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg):
     channels = x.shape[1]
 
     assert x.ndim == 5
@@ -29,10 +24,9 @@ def DWConv(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_block: ConfArg)
     assert x.dtype == weight.dtype == torch.float16
     assert channels == next_power_of_2(channels)
     assert list(weight.shape) == [3, 3, 3, channels]
-    assert D_block == next_power_of_2(D_block)
+    assert D_BLOCK == next_power_of_2(D_BLOCK)
 
-    ACCTYPE = {'float32': tl.float32, 'float16': tl.float16}[ACCTYPE]
-
+    ACCTYPE = tl.float32
     bsize, _, H, W, D = x.shape
     batch_stride, _, H_stride, W_stride, _ = x.stride()
 
@@ -40,7 +34,7 @@ def DWConv(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_block: ConfArg)
 
     H_grid = cdiv(H, 2)
     W_grid = cdiv(W, 2)
-    D_grid = cdiv(D, D_block)
+    D_grid = cdiv(D, D_BLOCK)
     grid = (H_grid, W_grid, D_grid)
 
     for unbatched_x, unbatched_y in zip(x, output):
@@ -55,8 +49,53 @@ def DWConv(x, weight, *, ACCTYPE: ConfArg, num_warps: ConfArg, D_block: ConfArg)
             W_stride,
             ACCTYPE,
             channels,
-            D_block,
+            D_BLOCK,
             num_warps=num_warps,
         )
 
     return output
+
+
+def generate_inputs_dwconv(problem_sizes, device='cuda'):
+    channels = problem_sizes['channels']
+
+    if channels <= 32:
+        base = 256
+    elif channels <= 64:
+        base = 192
+    else:
+        base = 128
+
+    x = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    w = torch.randn(3, 3, 3, channels, device=device, dtype=torch.float16)
+
+    return x, w
+
+
+def pruning_rule(problem_size, named_config):
+    D_BLOCK = named_config['D_BLOCK']
+
+    channels = problem_size['channels']
+
+    if channels >= 32 and D_BLOCK > 32:
+        return False
+
+    if channels >= 128 and D_BLOCK > 16:
+        return False
+
+    return True
+
+
+def autotune_dwconv(toml_path, **autotune_kwargs):
+    problem_sizes = [{'channels': channels} for channels in [2 ** i for i in range(3, 8)]]
+
+    autotune(
+        getattr(DWConv, 'function', DWConv),
+        generate_inputs_dwconv,
+        problem_sizes,
+        pruning_rule,
+        toml_path,
+        **autotune_kwargs,
+        num_warps=[1, 2, 4],
+        D_BLOCK=[8, 16, 32, 64],
+    )

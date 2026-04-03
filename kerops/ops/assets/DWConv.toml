@@ -1,0 +1,28 @@
+[meta]
+problem_size_names = ['channels']
+
+["NVIDIA GeForce RTX 5070"]
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [8]
+  num_warps = 2
+  D_BLOCK = 64
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [16]
+  num_warps = 4
+  D_BLOCK = 64
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32]
+  num_warps = 2
+  D_BLOCK = 32
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64]
+  num_warps = 4
+  D_BLOCK = 32
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [128]
+  num_warps = 2
+  D_BLOCK = 8
