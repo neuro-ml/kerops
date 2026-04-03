@@ -110,10 +110,7 @@ def autotune(
 
     def precompile_call(*args, config):
         kwargs = dict(zip(keys, config))
-        try:
-            func(*args, **kwargs)
-        except Exception:
-            pass
+        func(*args, **kwargs)
 
     n_jobs = min(n_jobs_precompile, len(configs))
     toml_entries = []
