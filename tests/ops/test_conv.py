@@ -4,10 +4,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from kerops.ops.conv import Conv3dWgrad
+from kerops.ops.conv import Conv3d, Conv3dWgrad
 from kerops.utils import allclose_two_stage, weight_grad_similarity
 
 
+# TODO: small shapes causes recompilations for some reasons regardless of configuration
 def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, other_3):
     if not (conv_in_channels == conv_out_channels or conv_in_channels * 2 == conv_out_channels or conv_in_channels == 2 * conv_out_channels):
         return
