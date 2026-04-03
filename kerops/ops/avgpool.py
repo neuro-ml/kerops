@@ -4,14 +4,17 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.avgpool import _AvgPoolCeilStats_cl3d_backward_impl, _AvgPoolCeilStats_cl3d_impl
-from ..settings import ConfArg, configure, get_l1_cache
+from ..settings import ConfArg, StaticKernelConfig, ConfiguredFunction
 from ..utils import cdiv
 
 
-@configure(
-    l1_cache_bytes=get_l1_cache,
-    num_warps=2,
+avgpool_config = StaticKernelConfig(
+    l1_cache_bytes=65536,
+    num_warps=2
 )
+
+
+@ConfiguredFunction.configure(avgpool_config)
 def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
     num_channels = x.shape[1]
     input_d = x.shape[-1]
@@ -60,7 +63,13 @@ def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
     return output, mean, sqmean
 
 
-@configure(l1_cache_bytes=get_l1_cache, num_warps=4)
+avgpool_backward_config = StaticKernelConfig(
+    l1_cache_bytes=65536,
+    num_warps=4
+)
+
+
+@ConfiguredFunction.configure(avgpool_backward_config)
 def AvgPoolCeilStatsBackward(
     inpgrad,
     meangrad,
