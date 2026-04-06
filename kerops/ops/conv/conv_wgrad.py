@@ -142,7 +142,7 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
         num_warps=[1, 2, 4],
         D_BLOCK=[16, 32],
         REDUCTION_FACTOR=[32],
-        CIN_BLOCK=[16, 32, 64],
-        COUT_BLOCK=[16, 32, 64],
+        CIN_BLOCK=[2 ** i for i in range(4, 8)],
+        COUT_BLOCK=[2 ** i for i in range(4, 8)],
         SWAP_GRAD_WITH_INPUT=[False, True]
     )

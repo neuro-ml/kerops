@@ -71,7 +71,7 @@ problem_size_names = ['in_channels', 'out_channels']
   D_BLOCK = 16
   REDUCTION_FACTOR = 32
   CIN_BLOCK = 64
-  COUT_BLOCK = 64
+  COUT_BLOCK = 128
   SWAP_GRAD_WITH_INPUT = false
 
   [["NVIDIA GeForce RTX 5070".configs]]
@@ -80,7 +80,7 @@ problem_size_names = ['in_channels', 'out_channels']
   D_BLOCK = 16
   REDUCTION_FACTOR = 32
   CIN_BLOCK = 64
-  COUT_BLOCK = 64
+  COUT_BLOCK = 128
   SWAP_GRAD_WITH_INPUT = true
 
   [["NVIDIA GeForce RTX 5070".configs]]
@@ -89,5 +89,5 @@ problem_size_names = ['in_channels', 'out_channels']
   D_BLOCK = 16
   REDUCTION_FACTOR = 32
   CIN_BLOCK = 64
-  COUT_BLOCK = 64
+  COUT_BLOCK = 128
   SWAP_GRAD_WITH_INPUT = false
