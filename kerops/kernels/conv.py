@@ -332,6 +332,104 @@ def _Conv_wgrad_cl3d_impl_V2(
 
 
 @triton.jit
+def make_offset(h_str, w_str, d_str, H_BLOCK: tl.constexpr, W_BLOCK: tl.constexpr, D_BLOCK: tl.constexpr):
+    d_off = tl.arange(0, D_BLOCK)
+    w_off = tl.arange(0, W_BLOCK)
+    h_off = tl.arange(0, H_BLOCK)
+
+    offset = h_off[:, None, None] * h_str + w_off[None, :, None] * w_str + d_off[None, None, :] * d_str
+    offset = offset.reshape((H_BLOCK * W_BLOCK * D_BLOCK))
+
+    return offset
+
+
+@triton.jit
+def make_mask(curr_h, curr_w, curr_d, H, W, D, H_BLOCK: tl.constexpr, W_BLOCK: tl.constexpr, D_BLOCK: tl.constexpr):
+    mask_d = ((tl.arange(0, D_BLOCK) + curr_d) >= 0) & ((tl.arange(0, D_BLOCK) + curr_d) < D)
+    mask_w = ((tl.arange(0, W_BLOCK) + curr_w) >= 0) & ((tl.arange(0, W_BLOCK) + curr_w) < W)
+    mask_h = ((tl.arange(0, H_BLOCK) + curr_h) >= 0) & ((tl.arange(0, H_BLOCK) + curr_h) < H)
+
+    mask = mask_h[:, None, None] & mask_w[None, :, None] & mask_d[None, None, :]
+    mask = mask.reshape((H_BLOCK * W_BLOCK * D_BLOCK))
+
+    return mask
+
+
+@triton.jit
+def _Conv_wgrad_cl3d_splitKonH_impl(
+    grad_ptr,
+    input_ptr,
+    weight_grad_ptr,
+    H,
+    W,
+    D,
+    ACCTYPE: tl.constexpr,
+    H_BLOCK: tl.constexpr, W_BLOCK: tl.constexpr, D_BLOCK: tl.constexpr,
+    IN_CHANNELS: tl.constexpr, OUT_CHANNELS: tl.constexpr,
+    CIN_BLOCK: tl.constexpr, COUT_BLOCK: tl.constexpr,
+    SPLIT_K: tl.constexpr,
+):
+    khwd_pid = tl.program_id(0)
+    cin_pid = tl.program_id(1)
+    cout_pid = tl.program_id(2)
+
+    k_pid = khwd_pid // 27
+    hwd_pid = khwd_pid % 27
+
+    block_d = hwd_pid % 3
+    hwd_pid = hwd_pid // 3
+    block_w = hwd_pid % 3
+    block_h = hwd_pid // 3
+
+    cin_offset = tl.arange(0, CIN_BLOCK)
+    cout_offset = tl.arange(0, COUT_BLOCK)
+    geom_offset = make_offset(W * D, D, 1, H_BLOCK, W_BLOCK, D_BLOCK)
+
+    grad_offset = geom_offset[:, None] * OUT_CHANNELS + cout_offset[None, :]
+    input_offset = geom_offset[None, :] * IN_CHANNELS + cin_offset[:, None]
+    weight_grad_offset = cin_offset[:, None] * OUT_CHANNELS + cout_offset[None, :]
+
+    grad_ptr += cout_pid * COUT_BLOCK
+    grad_ptr  += k_pid * H_BLOCK * OUT_CHANNELS * D * W
+    input_ptr += cin_pid * CIN_BLOCK
+    input_ptr += (block_d - 1) * IN_CHANNELS
+    input_ptr += k_pid * H_BLOCK * IN_CHANNELS * D * W
+    input_ptr += (block_w - 1) * IN_CHANNELS * D
+    input_ptr += (block_h - 1) * IN_CHANNELS * D * W
+    weight_grad_ptr += cin_pid * CIN_BLOCK * OUT_CHANNELS + cout_pid * COUT_BLOCK
+    weight_grad_ptr += block_d * IN_CHANNELS * OUT_CHANNELS
+    weight_grad_ptr += block_w * IN_CHANNELS * OUT_CHANNELS * 3
+    weight_grad_ptr += block_h * IN_CHANNELS * OUT_CHANNELS * 9
+
+    weight_grad = tl.zeros((CIN_BLOCK, COUT_BLOCK), dtype=ACCTYPE)
+
+    for grad_h in range(0, tl.cdiv(H, H_BLOCK * SPLIT_K)):
+        for grad_w in range(0, tl.cdiv(W, W_BLOCK)):
+            for grad_d in range(0, tl.cdiv(D, D_BLOCK)):
+                grad_mask = make_mask(grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK, grad_w * W_BLOCK, grad_d * D_BLOCK, H, W, D, H_BLOCK, W_BLOCK, D_BLOCK)
+                grad_iter_ptr = (
+                    grad_ptr
+                    + grad_h * H_BLOCK * W * D * OUT_CHANNELS * SPLIT_K
+                    + grad_w * W_BLOCK * D * OUT_CHANNELS
+                    + grad_d * D_BLOCK * OUT_CHANNELS
+                )
+                grad = tl.load(grad_iter_ptr + grad_offset, mask=grad_mask[:, None], other=0)
+
+                x_mask = make_mask(grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK + block_h - 1, grad_w * W_BLOCK + block_w - 1, grad_d * D_BLOCK + block_d - 1, H, W, D, H_BLOCK, W_BLOCK, D_BLOCK)
+                x_iter_ptr = (
+                    input_ptr
+                    + grad_h * H_BLOCK * W * D * IN_CHANNELS * SPLIT_K
+                    + grad_w * W_BLOCK * D * IN_CHANNELS
+                    + grad_d * D_BLOCK * IN_CHANNELS
+                )
+                x = tl.load(x_iter_ptr + input_offset, mask=x_mask[None, :], other=0)
+
+                weight_grad += tl.dot(x, grad)
+
+    tl.atomic_add(weight_grad_ptr + weight_grad_offset, weight_grad, sem='relaxed')
+
+
+@triton.jit
 def _ApplyBNReLUConvStats_cl3d_impl(
     input_ptr,
     bn_weight_ptr,

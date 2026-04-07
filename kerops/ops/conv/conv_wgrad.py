@@ -2,7 +2,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
-from ...kernels.conv import _Conv_wgrad_cl3d_impl_V2
+from ...kernels.conv import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitKonH_impl
 from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
@@ -84,6 +84,70 @@ def Conv3dWgrad(
     return weight_grad
 
 
+def Conv3dWgrad_splitKonH(
+    grad,
+    x,
+    *,
+    num_warps: ConfArg,
+    H_BLOCK: ConfArg,
+    W_BLOCK: ConfArg,
+    D_BLOCK: ConfArg,
+    CIN_BLOCK: ConfArg, 
+    COUT_BLOCK: ConfArg,
+    SPLIT_K: ConfArg,
+):
+    assert x.device == grad.device
+    assert x.is_cuda
+
+    assert x.ndim == grad.ndim == 5
+    xbsize, in_channels, xH, xW, xD = x.shape
+    gbsize, out_channels, gH, gW, gD = grad.shape
+    assert in_channels == next_power_of_2(in_channels)
+    assert out_channels == next_power_of_2(out_channels)
+    assert [xbsize, xH, xW, xD] == [gbsize, gH, gW, gD]
+
+    assert xbsize == gbsize == 1
+
+    assert x.is_contiguous(memory_format=torch.channels_last_3d)
+    assert grad.is_contiguous(memory_format=torch.channels_last_3d)
+
+    assert x.dtype == grad.dtype == torch.float16
+
+    assert H_BLOCK == next_power_of_2(H_BLOCK)
+    assert W_BLOCK == next_power_of_2(W_BLOCK)
+    assert D_BLOCK == next_power_of_2(D_BLOCK)
+    assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
+    assert CIN_BLOCK <= in_channels
+    assert COUT_BLOCK == next_power_of_2(COUT_BLOCK)
+    assert COUT_BLOCK <= out_channels
+
+    ACCTYPE = tl.float32
+    weight_grad = torch.zeros([3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
+
+    grid = (
+        27 * SPLIT_K,
+        cdiv(in_channels, CIN_BLOCK),
+        cdiv(out_channels, COUT_BLOCK)
+    )
+
+    _Conv_wgrad_cl3d_splitKonH_impl[grid](
+        grad,
+        x,
+        weight_grad,
+        xH, xW, xD,
+        ACCTYPE=ACCTYPE,
+        H_BLOCK=H_BLOCK, W_BLOCK=W_BLOCK, D_BLOCK=D_BLOCK,
+        IN_CHANNELS=in_channels, OUT_CHANNELS=out_channels,
+        CIN_BLOCK=CIN_BLOCK, COUT_BLOCK=COUT_BLOCK,
+        SPLIT_K=SPLIT_K,
+        num_warps=num_warps,
+    )
+    
+    weight_grad = weight_grad.to(torch.float16)
+
+    return weight_grad
+
+
 def pruning_rule(problem_size, named_config):
     D_BLOCK = named_config['D_BLOCK']
     CIN_BLOCK = named_config['CIN_BLOCK']
@@ -102,6 +166,25 @@ def pruning_rule(problem_size, named_config):
         return False
 
     if (COUT_BLOCK > out_channels and not SWAP_GRAD_WITH_INPUT) or (COUT_BLOCK > in_channels and SWAP_GRAD_WITH_INPUT):
+        return False
+
+    return True
+
+
+# TODO: non-equal block sizes?
+def pruning_rule_splitKonH(problem_size, named_config):
+    H_BLOCK = named_config['H_BLOCK']
+    W_BLOCK = named_config['W_BLOCK']
+    D_BLOCK = named_config['D_BLOCK']
+    CIN_BLOCK = named_config['CIN_BLOCK']
+    COUT_BLOCK = named_config['COUT_BLOCK']
+
+    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
+
+    if in_channels < CIN_BLOCK or out_channels < COUT_BLOCK:
+        return False
+    
+    if H_BLOCK != W_BLOCK or H_BLOCK != D_BLOCK or W_BLOCK != D_BLOCK:
         return False
 
     return True
@@ -166,4 +249,31 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
         CIN_BLOCK=channels,
         COUT_BLOCK=channels,
         SWAP_GRAD_WITH_INPUT=[False, True]
+    )
+
+
+def autotune_conv_wgrad_splitKonH(toml_path, **autotune_kwargs):
+    channels = [2 ** i for i in range(4, 8)]
+    problem_sizes = [
+        {'in_channels': cin, 'out_channels': cout}
+        for cin in channels
+        for cout in channels
+        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
+    ]
+
+    autotune(
+        getattr(Conv3dWgrad_splitKonH, 'function', Conv3dWgrad_splitKonH),
+        generate_inputs_conv_wgrad,
+        problem_sizes,
+        pruning_rule_splitKonH,
+        toml_path,
+        comparator=comparator,
+        **autotune_kwargs,
+        num_warps=[1, 2, 4],
+        H_BLOCK=[2, 4, 8, 16],
+        W_BLOCK=[2, 4, 8, 16],
+        D_BLOCK=[2, 4, 8, 16],
+        CIN_BLOCK=channels,
+        COUT_BLOCK=channels,
+        SPLIT_K=[1, 2, 4, 8, 16]
     )
