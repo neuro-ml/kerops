@@ -123,6 +123,26 @@ def generate_inputs_conv_wgrad(problem_sizes):
     return grad, x
 
 
+def comparator(grad, x):
+    cout = grad.shape[1]
+    cin = x.shape[1]
+    dummy_weight = torch.empty(cout, cin, 3, 3, 3, device='cuda', dtype=torch.float16)
+
+    torch.ops.aten.convolution_backward(
+        grad,
+        x,
+        dummy_weight,
+        [0],  # bias_sizes
+        [1, 1, 1],  # stride
+        [1, 1, 1],  # padding
+        [1, 1, 1],  # dilation
+        False,  # transposed
+        [0, 0, 0],  # output padding
+        1,  # groups
+        [False, True, False],  # output_mask - grad_inpt, grad_weight, grad_bias
+    )
+
+
 def autotune_conv_wgrad(toml_path, **autotune_kwargs):
     channels = [2 ** i for i in range(4, 8)]
     problem_sizes = [
@@ -138,11 +158,12 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
         problem_sizes,
         pruning_rule,
         toml_path,
+        comparator=comparator,
         **autotune_kwargs,
         num_warps=[1, 2, 4],
         D_BLOCK=[16, 32],
         REDUCTION_FACTOR=[32],
-        CIN_BLOCK=[2 ** i for i in range(4, 8)],
-        COUT_BLOCK=[2 ** i for i in range(4, 8)],
+        CIN_BLOCK=channels,
+        COUT_BLOCK=channels,
         SWAP_GRAD_WITH_INPUT=[False, True]
     )

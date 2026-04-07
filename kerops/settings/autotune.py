@@ -1,4 +1,5 @@
 import itertools
+import traceback as tb
 import torch
 from pathlib import Path
 from typing import Callable
@@ -64,6 +65,27 @@ def bench_single(
     return results
 
 
+def compare(best_entry, comparator, args, n_iters, quantiles):
+    best_ms = best_entry['mean_ms']
+
+    start = perf_counter()
+    end = perf_counter()
+
+    times_ms = []
+    for _ in range(n_iters):
+        start = perf_counter()
+        comparator(*args)
+        torch.cuda.synchronize()
+        end = perf_counter()
+        times_ms.append((end - start) * 1e3)
+
+    mean_comparator, _ = mean_std_percentile(times_ms, *quantiles)
+
+    ratio = mean_comparator / best_ms
+
+    return ratio
+
+
 def _build_toml(
     device: str,
     problem_size_names: list[str],
@@ -99,6 +121,7 @@ def autotune(
     sleep_ms: int = 100,
     n_iters: int = 100,
     quantiles: tuple = (20, 80),
+    comparator: Callable | None = None,
     **specset,
 ):
     keys = list(specset.keys())
@@ -109,8 +132,13 @@ def autotune(
     assert all(set(problem_size_names) == set(problem_size.keys()) for problem_size in problem_sizes)
 
     def precompile_call(*args, config):
-        kwargs = dict(zip(keys, config))
-        func(*args, **kwargs)
+        try:
+            kwargs = dict(zip(keys, config))
+            func(*args, **kwargs)
+        except Exception as e:
+            return ''.join(tb.format_exception(e))
+        
+        return None
 
     n_jobs = min(n_jobs_precompile, len(configs))
     toml_entries = []
@@ -121,10 +149,15 @@ def autotune(
         ps_values = list(problem_size.values())
         pruned_configs = [config for config in configs if pruning_rule is None or pruning_rule(problem_size, dict(zip(keys, config)))]
 
-        Parallel(n_jobs=n_jobs, backend='threading')(
+        precompile_statuses = Parallel(n_jobs=n_jobs, backend='threading')(
             delayed(precompile_call)(*args, config=config)
             for config in tqdm(pruned_configs, desc="Precompiling", leave=False)
         )
+
+        if not any(status is None for status in precompile_statuses):
+            example_tb = next(status for status in precompile_statuses if status is not None)
+
+            raise RuntimeError(f'Precompilation failed - all configs cause exception.\nExample:\n{example_tb}')
 
         results = bench_single(func, args, keys, pruned_configs, warmup, sleep_ms, n_iters, quantiles)
 
@@ -134,6 +167,10 @@ def autotune(
             continue
 
         best = min(valid, key=lambda r: r["mean_ms"])
+
+        if comparator is not None:
+            ratio = compare(best, comparator, args, n_iters, quantiles)
+            print(f'{problem_size=} best ratio - {ratio:.3f} (bigger is better)')
 
         toml_entries.append({
             "problem_sizes": ps_values,
