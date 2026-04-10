@@ -9,7 +9,7 @@ from ...utils import cdiv
 
 conv3d_wgrad_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['num_warps', 'D_BLOCK', 'REDUCTION_FACTOR', 'CIN_BLOCK', 'COUT_BLOCK', 'SWAP_GRAD_WITH_INPUT'],
+    confarg_names=['num_warps', 'D_BLOCK', 'REDUCTION_FACTOR', 'CIN_BLOCK', 'COUT_BLOCK'],
     args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
     toml_path=ASSETS_ROOT / 'Conv3dWgrad.toml'
 )
@@ -25,11 +25,7 @@ def Conv3dWgrad(
     REDUCTION_FACTOR: ConfArg,
     CIN_BLOCK: ConfArg,
     COUT_BLOCK: ConfArg,
-    SWAP_GRAD_WITH_INPUT: ConfArg
 ):
-    if SWAP_GRAD_WITH_INPUT:
-        grad, x = x, grad
-
     assert x.device == grad.device
     assert x.is_cuda
 
@@ -76,22 +72,25 @@ def Conv3dWgrad(
     
     weight_grad = weight_grad.sum(dim=0).to(torch.float16)
 
-    if SWAP_GRAD_WITH_INPUT:
-        weight_grad = weight_grad.permute(0, 1, 2, 4, 3)
-        weight_grad = torch.flip(weight_grad, dims=(0, 1, 2))
-        weight_grad = weight_grad.contiguous()
-
     return weight_grad
 
 
+conv3d_wgrad_splitk_config = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['num_warps', 'H_BLOCK', 'WD_BLOCK', 'CIN_BLOCK', 'COUT_BLOCK', 'SPLIT_K'],
+    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    toml_path=ASSETS_ROOT / 'Conv3dWgradSplitk.toml'
+)
+
+
+@ConfiguredFunction.configure(conv3d_wgrad_splitk_config)
 def Conv3dWgrad_splitKonH(
     grad,
     x,
     *,
     num_warps: ConfArg,
     H_BLOCK: ConfArg,
-    W_BLOCK: ConfArg,
-    D_BLOCK: ConfArg,
+    WD_BLOCK: ConfArg,
     CIN_BLOCK: ConfArg, 
     COUT_BLOCK: ConfArg,
     SPLIT_K: ConfArg,
@@ -114,8 +113,7 @@ def Conv3dWgrad_splitKonH(
     assert x.dtype == grad.dtype == torch.float16
 
     assert H_BLOCK == next_power_of_2(H_BLOCK)
-    assert W_BLOCK == next_power_of_2(W_BLOCK)
-    assert D_BLOCK == next_power_of_2(D_BLOCK)
+    assert WD_BLOCK == next_power_of_2(WD_BLOCK)
     assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
     assert CIN_BLOCK <= in_channels
     assert COUT_BLOCK == next_power_of_2(COUT_BLOCK)
@@ -136,7 +134,7 @@ def Conv3dWgrad_splitKonH(
         weight_grad,
         xH, xW, xD,
         ACCTYPE=ACCTYPE,
-        H_BLOCK=H_BLOCK, W_BLOCK=W_BLOCK, D_BLOCK=D_BLOCK,
+        H_BLOCK=H_BLOCK, W_BLOCK=WD_BLOCK, D_BLOCK=WD_BLOCK,
         IN_CHANNELS=in_channels, OUT_CHANNELS=out_channels,
         CIN_BLOCK=CIN_BLOCK, COUT_BLOCK=COUT_BLOCK,
         SPLIT_K=SPLIT_K,
@@ -152,7 +150,6 @@ def pruning_rule(problem_size, named_config):
     D_BLOCK = named_config['D_BLOCK']
     CIN_BLOCK = named_config['CIN_BLOCK']
     COUT_BLOCK = named_config['COUT_BLOCK']
-    SWAP_GRAD_WITH_INPUT = named_config['SWAP_GRAD_WITH_INPUT']
 
     in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
 
@@ -162,20 +159,15 @@ def pruning_rule(problem_size, named_config):
     if (in_channels >= 128 or out_channels >= 128) and D_BLOCK > 16:
         return False
 
-    if (CIN_BLOCK > in_channels and not SWAP_GRAD_WITH_INPUT) or (CIN_BLOCK > out_channels and SWAP_GRAD_WITH_INPUT):
-        return False
-
-    if (COUT_BLOCK > out_channels and not SWAP_GRAD_WITH_INPUT) or (COUT_BLOCK > in_channels and SWAP_GRAD_WITH_INPUT):
+    if CIN_BLOCK > in_channels or COUT_BLOCK > out_channels:
         return False
 
     return True
 
 
-# TODO: non-equal block sizes?
 def pruning_rule_splitKonH(problem_size, named_config):
     H_BLOCK = named_config['H_BLOCK']
-    W_BLOCK = named_config['W_BLOCK']
-    D_BLOCK = named_config['D_BLOCK']
+    WD_BLOCK = named_config['WD_BLOCK']
     CIN_BLOCK = named_config['CIN_BLOCK']
     COUT_BLOCK = named_config['COUT_BLOCK']
 
@@ -183,8 +175,14 @@ def pruning_rule_splitKonH(problem_size, named_config):
 
     if in_channels < CIN_BLOCK or out_channels < COUT_BLOCK:
         return False
-    
-    if H_BLOCK != W_BLOCK or H_BLOCK != D_BLOCK or W_BLOCK != D_BLOCK:
+
+    if in_channels // CIN_BLOCK > 4 or out_channels // COUT_BLOCK > 4:
+        return False
+
+    if H_BLOCK * WD_BLOCK * WD_BLOCK < 16:
+        return False
+
+    if H_BLOCK * WD_BLOCK * WD_BLOCK > 64:
         return False
 
     return True
@@ -248,7 +246,6 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
         REDUCTION_FACTOR=[32],
         CIN_BLOCK=channels,
         COUT_BLOCK=channels,
-        SWAP_GRAD_WITH_INPUT=[False, True]
     )
 
 
@@ -271,9 +268,9 @@ def autotune_conv_wgrad_splitKonH(toml_path, **autotune_kwargs):
         **autotune_kwargs,
         num_warps=[1, 2, 4],
         H_BLOCK=[2, 4, 8, 16],
-        W_BLOCK=[2, 4, 8, 16],
-        D_BLOCK=[2, 4, 8, 16],
+        WD_BLOCK=[2, 4, 8, 16],
         CIN_BLOCK=channels,
         COUT_BLOCK=channels,
-        SPLIT_K=[1, 2, 4, 8, 16]
+        SPLIT_K=[4, 8, 16],
+        n_iters=85
     )

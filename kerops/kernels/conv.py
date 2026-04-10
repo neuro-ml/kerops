@@ -365,9 +365,9 @@ def _Conv_wgrad_cl3d_splitKonH_impl(
     D,
     ACCTYPE: tl.constexpr,
     H_BLOCK: tl.constexpr, W_BLOCK: tl.constexpr, D_BLOCK: tl.constexpr,
-    IN_CHANNELS: tl.constexpr, OUT_CHANNELS: tl.constexpr,
+    IN_CHANNELS, OUT_CHANNELS,
     CIN_BLOCK: tl.constexpr, COUT_BLOCK: tl.constexpr,
-    SPLIT_K: tl.constexpr,
+    SPLIT_K,
 ):
     khwd_pid = tl.program_id(0)
     cin_pid = tl.program_id(1)
@@ -404,27 +404,28 @@ def _Conv_wgrad_cl3d_splitKonH_impl(
     weight_grad = tl.zeros((CIN_BLOCK, COUT_BLOCK), dtype=ACCTYPE)
 
     for grad_h in range(0, tl.cdiv(H, H_BLOCK * SPLIT_K)):
-        for grad_w in range(0, tl.cdiv(W, W_BLOCK)):
-            for grad_d in range(0, tl.cdiv(D, D_BLOCK)):
-                grad_mask = make_mask(grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK, grad_w * W_BLOCK, grad_d * D_BLOCK, H, W, D, H_BLOCK, W_BLOCK, D_BLOCK)
-                grad_iter_ptr = (
-                    grad_ptr
-                    + grad_h * H_BLOCK * W * D * OUT_CHANNELS * SPLIT_K
-                    + grad_w * W_BLOCK * D * OUT_CHANNELS
-                    + grad_d * D_BLOCK * OUT_CHANNELS
-                )
-                grad = tl.load(grad_iter_ptr + grad_offset, mask=grad_mask[:, None], other=0)
+        if grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK < H:
+            for grad_w in range(0, tl.cdiv(W, W_BLOCK)):
+                for grad_d in range(0, tl.cdiv(D, D_BLOCK)):
+                    grad_mask = make_mask(grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK, grad_w * W_BLOCK, grad_d * D_BLOCK, H, W, D, H_BLOCK, W_BLOCK, D_BLOCK)
+                    grad_iter_ptr = (
+                        grad_ptr
+                        + grad_h * H_BLOCK * W * D * OUT_CHANNELS * SPLIT_K
+                        + grad_w * W_BLOCK * D * OUT_CHANNELS
+                        + grad_d * D_BLOCK * OUT_CHANNELS
+                    )
+                    grad = tl.load(grad_iter_ptr + grad_offset, mask=grad_mask[:, None], other=0)
 
-                x_mask = make_mask(grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK + block_h - 1, grad_w * W_BLOCK + block_w - 1, grad_d * D_BLOCK + block_d - 1, H, W, D, H_BLOCK, W_BLOCK, D_BLOCK)
-                x_iter_ptr = (
-                    input_ptr
-                    + grad_h * H_BLOCK * W * D * IN_CHANNELS * SPLIT_K
-                    + grad_w * W_BLOCK * D * IN_CHANNELS
-                    + grad_d * D_BLOCK * IN_CHANNELS
-                )
-                x = tl.load(x_iter_ptr + input_offset, mask=x_mask[None, :], other=0)
+                    x_mask = make_mask(grad_h * H_BLOCK * SPLIT_K + k_pid * H_BLOCK + block_h - 1, grad_w * W_BLOCK + block_w - 1, grad_d * D_BLOCK + block_d - 1, H, W, D, H_BLOCK, W_BLOCK, D_BLOCK)
+                    x_iter_ptr = (
+                        input_ptr
+                        + grad_h * H_BLOCK * W * D * IN_CHANNELS * SPLIT_K
+                        + grad_w * W_BLOCK * D * IN_CHANNELS
+                        + grad_d * D_BLOCK * IN_CHANNELS
+                    )
+                    x = tl.load(x_iter_ptr + input_offset, mask=x_mask[None, :], other=0)
 
-                weight_grad += tl.dot(x, grad)
+                    weight_grad += tl.dot(x, grad)
 
     tl.atomic_add(weight_grad_ptr + weight_grad_offset, weight_grad, sem='relaxed')
 
