@@ -11,12 +11,12 @@ conv3d_wgrad_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
     confarg_names=['num_warps', 'D_BLOCK', 'REDUCTION_FACTOR', 'CIN_BLOCK', 'COUT_BLOCK'],
     args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
-    toml_path=ASSETS_ROOT / 'Conv3dWgrad.toml'
+    toml_path=ASSETS_ROOT / 'Conv3dWgrad_grad_based.toml'
 )
 
 
 @ConfiguredFunction.configure(conv3d_wgrad_config)
-def Conv3dWgrad(
+def Conv3dWgrad_grad_based(
     grad,
     x,
     *,
@@ -224,7 +224,7 @@ def comparator(grad, x):
     )
 
 
-def autotune_conv_wgrad(toml_path, **autotune_kwargs):
+def autotune_conv_wgrad_grad_based(toml_path, **autotune_kwargs):
     channels = [2 ** i for i in range(4, 8)]
     problem_sizes = [
         {'in_channels': cin, 'out_channels': cout}
@@ -234,7 +234,7 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
     ]
 
     autotune(
-        getattr(Conv3dWgrad, 'function', Conv3dWgrad),
+        getattr(Conv3dWgrad_grad_based, 'function', Conv3dWgrad_grad_based),
         generate_inputs_conv_wgrad,
         problem_sizes,
         pruning_rule,
