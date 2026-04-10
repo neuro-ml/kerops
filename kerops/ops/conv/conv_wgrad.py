@@ -146,6 +146,39 @@ def Conv3dWgrad_splitk(
     return weight_grad
 
 
+conv3d_wgrad = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['IMPL_ID', 'SWAP_GRAD_X'],
+    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    toml_path=ASSETS_ROOT / 'Conv3dWgrad.toml'
+)
+
+
+@ConfiguredFunction.configure(conv3d_wgrad)
+def Conv3dWgrad(
+    grad,
+    x,
+    *,
+    IMPL_ID: ConfArg,
+    SWAP_GRAD_X: ConfArg,
+):
+    if SWAP_GRAD_X:
+        grad, x = x, grad
+
+    match IMPL_ID:
+        case 0:
+            weight_grad = Conv3dWgrad_grad_based(grad, x)
+        case 1:
+            weight_grad = Conv3dWgrad_splitk(grad, x)
+
+    if SWAP_GRAD_X:
+        weight_grad = weight_grad.permute(0, 1, 2, 4, 3)
+        weight_grad = torch.flip(weight_grad, dims=(0, 1, 2))
+        weight_grad = weight_grad.contiguous()
+    
+    return weight_grad
+
+
 def pruning_rule(problem_size, named_config):
     D_BLOCK = named_config['D_BLOCK']
     CIN_BLOCK = named_config['CIN_BLOCK']
@@ -273,4 +306,26 @@ def autotune_conv_wgrad_splitKonH(toml_path, **autotune_kwargs):
         COUT_BLOCK=channels,
         SPLIT_K=[4, 8, 16],
         n_iters=85
+    )
+
+
+def autotune_conv_wgrad(toml_path, **autotune_kwargs):
+    channels = [2 ** i for i in range(4, 8)]
+    problem_sizes = [
+        {'in_channels': cin, 'out_channels': cout}
+        for cin in channels
+        for cout in channels
+        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
+    ]
+
+    autotune(
+        getattr(Conv3dWgrad, 'function', Conv3dWgrad),
+        generate_inputs_conv_wgrad,
+        problem_sizes,
+        pruning_rule=None,
+        toml_path=toml_path,
+        comparator=comparator,
+        **autotune_kwargs,
+        IMPL_ID=[0, 1],
+        SWAP_GRAD_X=[False, True]
     )
