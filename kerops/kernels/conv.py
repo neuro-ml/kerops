@@ -356,7 +356,7 @@ def make_mask(curr_h, curr_w, curr_d, H, W, D, H_BLOCK: tl.constexpr, W_BLOCK: t
 
 
 @triton.jit
-def _Conv_wgrad_cl3d_splitKonH_impl(
+def _Conv_wgrad_cl3d_splitk_impl(
     grad_ptr,
     input_ptr,
     weight_grad_ptr,

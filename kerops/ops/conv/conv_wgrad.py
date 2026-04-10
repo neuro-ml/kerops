@@ -2,12 +2,12 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
-from ...kernels.conv import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitKonH_impl
+from ...kernels.conv import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitk_impl
 from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
-conv3d_wgrad_config = TableKernelConfig(
+conv3d_wgrad_grad_based_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
     confarg_names=['num_warps', 'D_BLOCK', 'REDUCTION_FACTOR', 'CIN_BLOCK', 'COUT_BLOCK'],
     args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
@@ -15,7 +15,7 @@ conv3d_wgrad_config = TableKernelConfig(
 )
 
 
-@ConfiguredFunction.configure(conv3d_wgrad_config)
+@ConfiguredFunction.configure(conv3d_wgrad_grad_based_config)
 def Conv3dWgrad_grad_based(
     grad,
     x,
@@ -79,12 +79,12 @@ conv3d_wgrad_splitk_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
     confarg_names=['num_warps', 'H_BLOCK', 'WD_BLOCK', 'CIN_BLOCK', 'COUT_BLOCK', 'SPLIT_K'],
     args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
-    toml_path=ASSETS_ROOT / 'Conv3dWgradSplitk.toml'
+    toml_path=ASSETS_ROOT / 'Conv3dWgrad_splitk.toml'
 )
 
 
 @ConfiguredFunction.configure(conv3d_wgrad_splitk_config)
-def Conv3dWgrad_splitKonH(
+def Conv3dWgrad_splitk(
     grad,
     x,
     *,
@@ -128,7 +128,7 @@ def Conv3dWgrad_splitKonH(
         cdiv(out_channels, COUT_BLOCK)
     )
 
-    _Conv_wgrad_cl3d_splitKonH_impl[grid](
+    _Conv_wgrad_cl3d_splitk_impl[grid](
         grad,
         x,
         weight_grad,
@@ -259,7 +259,7 @@ def autotune_conv_wgrad_splitKonH(toml_path, **autotune_kwargs):
     ]
 
     autotune(
-        getattr(Conv3dWgrad_splitKonH, 'function', Conv3dWgrad_splitKonH),
+        getattr(Conv3dWgrad_splitk, 'function', Conv3dWgrad_splitk),
         generate_inputs_conv_wgrad,
         problem_sizes,
         pruning_rule_splitKonH,
