@@ -371,7 +371,7 @@ def _Conv_wgrad_cl3d_splitk_impl(
 ):
     khwd_pid = tl.program_id(0)
     cin_pid = tl.program_id(1)
-    cout_pid = tl.program_id(2)
+    cout_batch_pid = tl.program_id(2)
 
     k_pid = khwd_pid // 27
     hwd_pid = khwd_pid % 27
@@ -380,6 +380,9 @@ def _Conv_wgrad_cl3d_splitk_impl(
     hwd_pid = hwd_pid // 3
     block_w = hwd_pid % 3
     block_h = hwd_pid // 3
+
+    cout_pid = cout_batch_pid % tl.cdiv(OUT_CHANNELS, COUT_BLOCK)
+    batch_pid = cout_batch_pid // tl.cdiv(OUT_CHANNELS, COUT_BLOCK)
 
     cin_offset = tl.arange(0, CIN_BLOCK)
     cout_offset = tl.arange(0, COUT_BLOCK)
@@ -390,16 +393,19 @@ def _Conv_wgrad_cl3d_splitk_impl(
     weight_grad_offset = cin_offset[:, None] * OUT_CHANNELS + cout_offset[None, :]
 
     grad_ptr += cout_pid * COUT_BLOCK
-    grad_ptr  += k_pid * H_BLOCK * OUT_CHANNELS * D * W
+    grad_ptr += k_pid * H_BLOCK * OUT_CHANNELS * D * W
+    grad_ptr += batch_pid * H * W * D * OUT_CHANNELS
     input_ptr += cin_pid * CIN_BLOCK
     input_ptr += (block_d - 1) * IN_CHANNELS
     input_ptr += k_pid * H_BLOCK * IN_CHANNELS * D * W
     input_ptr += (block_w - 1) * IN_CHANNELS * D
     input_ptr += (block_h - 1) * IN_CHANNELS * D * W
+    input_ptr += batch_pid * H * W * D * IN_CHANNELS
     weight_grad_ptr += cin_pid * CIN_BLOCK * OUT_CHANNELS + cout_pid * COUT_BLOCK
     weight_grad_ptr += block_d * IN_CHANNELS * OUT_CHANNELS
     weight_grad_ptr += block_w * IN_CHANNELS * OUT_CHANNELS * 3
     weight_grad_ptr += block_h * IN_CHANNELS * OUT_CHANNELS * 9
+    weight_grad_ptr += batch_pid * IN_CHANNELS * OUT_CHANNELS * 27
 
     weight_grad = tl.zeros((CIN_BLOCK, COUT_BLOCK), dtype=ACCTYPE)
 

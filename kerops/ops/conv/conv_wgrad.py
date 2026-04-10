@@ -105,7 +105,7 @@ def Conv3dWgrad_splitk(
     assert out_channels == next_power_of_2(out_channels)
     assert [xbsize, xH, xW, xD] == [gbsize, gH, gW, gD]
 
-    assert xbsize == gbsize == 1
+    assert xbsize == gbsize
 
     assert x.is_contiguous(memory_format=torch.channels_last_3d)
     assert grad.is_contiguous(memory_format=torch.channels_last_3d)
@@ -120,12 +120,12 @@ def Conv3dWgrad_splitk(
     assert COUT_BLOCK <= out_channels
 
     ACCTYPE = tl.float32
-    weight_grad = torch.zeros([3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
+    weight_grad = torch.zeros([xbsize, 3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
 
     grid = (
         27 * SPLIT_K,
         cdiv(in_channels, CIN_BLOCK),
-        cdiv(out_channels, COUT_BLOCK)
+        cdiv(out_channels, COUT_BLOCK) * xbsize
     )
 
     _Conv_wgrad_cl3d_splitk_impl[grid](
@@ -141,6 +141,7 @@ def Conv3dWgrad_splitk(
         num_warps=num_warps,
     )
     
+    weight_grad = torch.sum(weight_grad, dim=0)
     weight_grad = weight_grad.to(torch.float16)
 
     return weight_grad
