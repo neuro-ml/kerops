@@ -1,18 +1,21 @@
 from functools import reduce
-from math import ceil
 
 import torch
 from triton import next_power_of_2
 
 from ..kernels.avgpool import _AvgPoolCeilStats_cl3d_backward_impl, _AvgPoolCeilStats_cl3d_impl
-from ..settings import ConfigurableArg, configure, get_l1_cache
+from ..settings import ConfArg, StaticKernelConfig, ConfiguredFunction
+from ..utils import cdiv
 
 
-@configure(
-    l1_cache_bytes=get_l1_cache,
-    num_warps=2,
+avgpool_config = StaticKernelConfig(
+    l1_cache_bytes=65536,
+    num_warps=2
 )
-def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg):
+
+
+@ConfiguredFunction.configure(avgpool_config)
+def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
     num_channels = x.shape[1]
     input_d = x.shape[-1]
     MAX_SIZE = l1_cache_bytes // x.element_size()  # 32768 for fp16
@@ -26,7 +29,7 @@ def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfigurableArg, num_warps: Configura
     BLOCK_SIZE = next_power_of_2(input_d * num_channels)
     almost_half_d = BLOCK_SIZE // (2 * num_channels)
 
-    out_shape = [x.shape[0]] + [ceil(sh / 2) for sh in x.shape[2:]] + [x.shape[1]]
+    out_shape = [x.shape[0]] + [cdiv(sh, 2) for sh in x.shape[2:]] + [x.shape[1]]
     output = torch.empty(out_shape, dtype=torch.float16, device=x.device).permute(0, 4, 1, 2, 3)
 
     grid_batch, _, grid_H, grid_W, _ = output.shape
@@ -60,7 +63,13 @@ def AvgPoolCeilStats(x, *, l1_cache_bytes: ConfigurableArg, num_warps: Configura
     return output, mean, sqmean
 
 
-@configure(l1_cache_bytes=get_l1_cache, num_warps=4)
+avgpool_backward_config = StaticKernelConfig(
+    l1_cache_bytes=65536,
+    num_warps=4
+)
+
+
+@ConfiguredFunction.configure(avgpool_backward_config)
 def AvgPoolCeilStatsBackward(
     inpgrad,
     meangrad,
@@ -68,8 +77,8 @@ def AvgPoolCeilStatsBackward(
     output,
     outgrad_shape,
     *,
-    l1_cache_bytes: ConfigurableArg,
-    num_warps: ConfigurableArg,
+    l1_cache_bytes: ConfArg,
+    num_warps: ConfArg,
 ):
     MAX_SIZE = l1_cache_bytes // inpgrad.element_size()  # 32768 for fp16
     bsize, num_channels, h_outgrad, w_outgrad, d_outgrad = outgrad_shape

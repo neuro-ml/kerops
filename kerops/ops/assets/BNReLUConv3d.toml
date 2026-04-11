@@ -1,0 +1,63 @@
+[meta]
+problem_size_names = ['in_channels', 'out_channels']
+
+["NVIDIA GeForce RTX 5070"]
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [16, 16]
+  num_warps = 4
+  D_BLOCK = 64
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [16, 32]
+  num_warps = 2
+  D_BLOCK = 32
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32, 16]
+  num_warps = 4
+  D_BLOCK = 64
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32, 32]
+  num_warps = 2
+  D_BLOCK = 32
+  CIN_BLOCK = 32
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [32, 64]
+  num_warps = 2
+  D_BLOCK = 32
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64, 32]
+  num_warps = 2
+  D_BLOCK = 32
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64, 64]
+  num_warps = 2
+  D_BLOCK = 32
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [64, 128]
+  num_warps = 2
+  D_BLOCK = 16
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [128, 64]
+  num_warps = 4
+  D_BLOCK = 16
+  CIN_BLOCK = 16
+
+  [["NVIDIA GeForce RTX 5070".configs]]
+  problem_sizes = [128, 128]
+  num_warps = 2
+  D_BLOCK = 16
+  CIN_BLOCK = 16

@@ -1,34 +1,13 @@
-from inspect import Parameter
+from torch import Tensor
+from torch.cuda import get_device_name
 
 
-class ConfigurableArg:
-    pass
+def get_device_name_from_args(*args):
+    device_indices = {arg.device.index for arg in args if isinstance (arg, Tensor) and arg.device.type == 'cuda'}
 
-
-class CongiguratorError(Exception):
-    pass
-
-
-def validate_signature(signature):
-    for param in signature.parameters.values():
-        if param.annotation is ConfigurableArg and param.kind is not Parameter.KEYWORD_ONLY:
-            raise RuntimeError(f'ConfigurableArg must be keyword-only - {param.name}')
-        elif param.annotation is not ConfigurableArg and param.kind is Parameter.KEYWORD_ONLY:
-            raise RuntimeError(f'non-ConfigurableArg must not be keyword-only - {param.name}')
-
-
-def get_config_args(signature):
-    return [param.name for param in signature.parameters.values() if param.annotation is ConfigurableArg]
-
-
-def get_standard_args(signature):
-    return [
-        param.name
-        for param in signature.parameters.values()
-        if param.kind is Parameter.POSITIONAL_ONLY or param.kind is Parameter.POSITIONAL_OR_KEYWORD
-    ]
-
-
-def configs_match(configurable_args, configurators_names):
-    if set(configurable_args) != set(configurators_names):
-        raise RuntimeError(f'Configuration mismatch, {configurable_args=}, {configurators_names=}')
+    if len(device_indices) == 1:
+        return get_device_name(device_indices.pop())
+    elif len(device_indices) == 0:
+        raise RuntimeError('Cannot configure due to non-cuda args')
+    else:
+        raise RuntimeError(f'Expected all tensors to be on the same GPU, got CUDA-devices:{device_indices}')

@@ -100,3 +100,10 @@ def weight_grad_similarity(input, other, rtol_cos=1e-4, atol_cos=1e-4, rtol_len=
     debug_info('All stages passed')
 
     return True
+
+
+def cdiv(a, b):
+    assert type(a) == int
+    assert type(b) == int
+
+    return (a + b - 1) // b
