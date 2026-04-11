@@ -19,22 +19,22 @@ problem_size_names = ['in_channels', 'out_channels']
 
   [["NVIDIA GeForce RTX 5070".configs]]
   problem_sizes = [32, 32]
-  IMPL_ID = 0
+  IMPL_ID = 2
   SWAP_GRAD_X = false
 
   [["NVIDIA GeForce RTX 5070".configs]]
   problem_sizes = [32, 64]
-  IMPL_ID = 0
+  IMPL_ID = 2
   SWAP_GRAD_X = false
 
   [["NVIDIA GeForce RTX 5070".configs]]
   problem_sizes = [64, 32]
-  IMPL_ID = 0
+  IMPL_ID = 2
   SWAP_GRAD_X = true
 
   [["NVIDIA GeForce RTX 5070".configs]]
   problem_sizes = [64, 64]
-  IMPL_ID = 1
+  IMPL_ID = 2
   SWAP_GRAD_X = false
 
   [["NVIDIA GeForce RTX 5070".configs]]
