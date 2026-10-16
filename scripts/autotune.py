@@ -2,7 +2,12 @@
 import argparse
 
 from kerops.ops.assets import ASSETS_ROOT
-from kerops.ops.conv.conv import autotune_bnreluconv, autotune_conv
+from kerops.ops.conv.bnrelu_conv import autotune_bnreluconv
+from kerops.ops.conv.conv import (
+    autotune_conv,
+    autotune_conv_implicit_gemm,
+    autotune_conv_tiled_halo,
+)
 from kerops.ops.conv.conv_wgrad import (
     autotune_conv_wgrad,
     autotune_conv_wgrad_grad_based,
@@ -17,6 +22,8 @@ from kerops.ops.linear.relu_linear_add import autotune_relu_lin_add
 from kerops.ops.linear.relu_linear_backward import autotune_relu_lin_backward
 
 TARGETS = {
+    'conv_tiled_halo': (autotune_conv_tiled_halo, 'Conv3dTiledHalo.toml'),
+    'conv_implicit_gemm': (autotune_conv_implicit_gemm, 'Conv3dImplicitGemm.toml'),
     'conv': (autotune_conv, 'Conv3d.toml'),
     'bnreluconv': (autotune_bnreluconv, 'BNReLUConv3d.toml'),
     'conv_wgrad': (autotune_conv_wgrad, 'Conv3dWgrad.toml'),

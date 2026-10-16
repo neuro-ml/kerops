@@ -1,0 +1,75 @@
+[meta]
+problem_size_names = ['in_channels', 'out_channels']
+
+["NVIDIA GeForce RTX 4090"]
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 64]
+  BLOCK_K = 32
+  TILE_H = 1
+  TILE_W = 4
+  TILE_D = 64
+  NUM_STAGES = 2
+  WARPS_M = 4
+  WARPS_N = 1
+  FP16_CHAIN = 1
+  VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 32]
+  BLOCK_K = 64
+  TILE_H = 1
+  TILE_W = 2
+  TILE_D = 64
+  NUM_STAGES = 3
+  WARPS_M = 4
+  WARPS_N = 1
+  FP16_CHAIN = 1
+  VEC = 4
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 64]
+  BLOCK_K = 32
+  TILE_H = 2
+  TILE_W = 2
+  TILE_D = 64
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 2
+  FP16_CHAIN = 1
+  VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 128]
+  BLOCK_K = 64
+  TILE_H = 2
+  TILE_W = 2
+  TILE_D = 64
+  NUM_STAGES = 2
+  WARPS_M = 4
+  WARPS_N = 2
+  FP16_CHAIN = 1
+  VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [128, 64]
+  BLOCK_K = 64
+  TILE_H = 1
+  TILE_W = 4
+  TILE_D = 64
+  NUM_STAGES = 2
+  WARPS_M = 4
+  WARPS_N = 2
+  FP16_CHAIN = 1
+  VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [128, 128]
+  BLOCK_K = 64
+  TILE_H = 1
+  TILE_W = 4
+  TILE_D = 64
+  NUM_STAGES = 2
+  WARPS_M = 4
+  WARPS_N = 2
+  FP16_CHAIN = 1
+  VEC = 8

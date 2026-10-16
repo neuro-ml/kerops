@@ -1,217 +1,188 @@
-import numpy as np
+import itertools
+
 import torch
-from triton import language as tl, next_power_of_2
+from torch.nn import functional as F
+from triton import next_power_of_2
 
 from ..assets import ASSETS_ROOT
-from ...kernels.conv import _Conv_cl3d_impl_V6, _ApplyBNReLUConvStats_cl3d_impl
+from ...kernels.conv_fprop import _Conv_cl3d_implicit_gemm, _Conv_cl3d_tiled_halo
 from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
+def conv_shapes(x, weight):
+    """(batch, H, W, D, in channels, out channels), after checking the layout every Conv3d implementation expects."""
+    assert x.is_cuda and x.device == weight.device
+    assert x.ndim == 5 and weight.ndim == 5
+    bsize, in_channels, H, W, D = x.shape
+    out_channels = weight.shape[-1]
+    assert list(weight.shape) == [3, 3, 3, in_channels, out_channels]
+    assert in_channels == next_power_of_2(in_channels) and out_channels == next_power_of_2(out_channels)
+    assert x.is_contiguous(memory_format=torch.channels_last_3d) and weight.is_contiguous()
+    assert x.dtype == weight.dtype == torch.float16
+    assert H * W * D * max(in_channels, out_channels) < 2**31, 'offsets inside one sample are int32'
+    return bsize, H, W, D, in_channels, out_channels
+
+
+def channels_last_output(x, out_channels):
+    bsize, _, H, W, D = x.shape
+    return torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype).permute(0, 4, 1, 2, 3)
+
+
+def _problem_sizes(weight):
+    return tuple(weight.shape[-2:])
+
+
+conv3d_tiled_halo_config = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['BLOCK_K', 'TH', 'TW', 'TD', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'POSITION_MAJOR'],
+    args_to_problem_sizes=_problem_sizes,
+    toml_path=ASSETS_ROOT / 'Conv3dTiledHalo.toml'
+)
+
+
+@ConfiguredFunction.configure(conv3d_tiled_halo_config)
+def Conv3dTiledHalo(
+    x, weight, *,
+    BLOCK_K: ConfArg, TH: ConfArg, TW: ConfArg, TD: ConfArg, NUM_STAGES: ConfArg, WARPS_M: ConfArg, WARPS_N: ConfArg,
+    POSITION_MAJOR: ConfArg,
+):
+    bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)
+    output = channels_last_output(x, out_channels)
+    grid = (cdiv(W, TW), cdiv(H, TH), cdiv(D, TD) * bsize)
+    _Conv_cl3d_tiled_halo[grid](
+        x, weight, output, H, W, D, in_channels, out_channels, BLOCK_K, TH, TW, TD, NUM_STAGES, WARPS_M, WARPS_N,
+        POSITION_MAJOR, num_warps=WARPS_M * WARPS_N,
+    )
+    return output
+
+
+conv3d_implicit_gemm_config = TableKernelConfig(
+    problem_size_names=['in_channels', 'out_channels'],
+    confarg_names=['BLOCK_K', 'TILE_H', 'TILE_W', 'TILE_D', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'FP16_CHAIN', 'VEC'],
+    args_to_problem_sizes=_problem_sizes,
+    toml_path=ASSETS_ROOT / 'Conv3dImplicitGemm.toml'
+)
+
+
+@ConfiguredFunction.configure(conv3d_implicit_gemm_config)
+def Conv3dImplicitGemm(
+    x, weight, *,
+    BLOCK_K: ConfArg, TILE_H: ConfArg, TILE_W: ConfArg, TILE_D: ConfArg, NUM_STAGES: ConfArg, WARPS_M: ConfArg, WARPS_N: ConfArg,
+    FP16_CHAIN: ConfArg, VEC: ConfArg,
+):
+    bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)
+    output = channels_last_output(x, out_channels)
+    grid = (cdiv(W, TILE_W), cdiv(H, TILE_H), cdiv(D, TILE_D) * bsize)
+    _Conv_cl3d_implicit_gemm[grid](
+        x, weight, output, H, W, D, in_channels, out_channels, BLOCK_K, TILE_H, TILE_W, TILE_D, NUM_STAGES, WARPS_M, WARPS_N,
+        FP16_CHAIN, VEC, num_warps=WARPS_M * WARPS_N,
+    )
+    return output
+
+
+IMPLEMENTATIONS = (Conv3dTiledHalo, Conv3dImplicitGemm)
+
 conv3d_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['num_warps', 'D_BLOCK', 'CIN_BLOCK', 'WEIGHT_MAJOR', 'LOAD_WEIGHT_FIRST'],
-    args_to_problem_sizes=lambda weight: tuple(weight.shape[-2:]),
+    confarg_names=['IMPL_ID'],
+    args_to_problem_sizes=_problem_sizes,
     toml_path=ASSETS_ROOT / 'Conv3d.toml'
 )
 
 
 @ConfiguredFunction.configure(conv3d_config)
-def Conv3d(x, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg, LOAD_WEIGHT_FIRST: ConfArg, WEIGHT_MAJOR: ConfArg):
-    assert x.device == weight.device
-    assert x.is_cuda
-
-    assert x.ndim == 5
-    assert weight.ndim == 5
-    bsize, x_channels, H, W, D = x.shape
-    in_channels, out_channels = weight.shape[-2:]
-    assert x_channels == next_power_of_2(x_channels)
-    assert list(weight.shape) == [3, 3, 3, in_channels, out_channels]  # 3, 3, 3, in_channels, out_channels
-    assert in_channels == x_channels
-    assert out_channels == next_power_of_2(out_channels)
-
-    assert x.is_contiguous(memory_format=torch.channels_last_3d)
-    assert weight.is_contiguous()
-
-    assert x.dtype == weight.dtype == torch.float16
-    
-    assert D_BLOCK == next_power_of_2(D_BLOCK)
-    assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
-    assert CIN_BLOCK <= in_channels
-
-    ACCTYPE = tl.float32
-    output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
-    grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK) * bsize)
-
-    _Conv_cl3d_impl_V6[grid](
-        x,
-        weight,
-        output,
-        H,
-        W,
-        D,
-        D_BLOCK=D_BLOCK,
-        ACCTYPE=ACCTYPE,
-        IN_CHANNELS=in_channels,
-        OUT_CHANNELS=out_channels,
-        CIN_BLOCK=CIN_BLOCK,
-        LOAD_WEIGHT_FIRST=LOAD_WEIGHT_FIRST,
-        WEIGHT_MAJOR=WEIGHT_MAJOR,
-        num_warps=num_warps,
-    )
-
-    return output
-
-
-bnreluconv3d_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['D_BLOCK', 'num_warps', 'CIN_BLOCK'],
-    args_to_problem_sizes=lambda weight: tuple(weight.shape[-2:]),
-    toml_path=ASSETS_ROOT / 'BNReLUConv3d.toml'
-)
-
-
-@ConfiguredFunction.configure(bnreluconv3d_config)
-def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg):
-    assert x.device == weight.device == bn_weight.device == bn_bias.device
-    assert x.is_cuda
-
-    assert x.ndim == 5
-    assert weight.ndim == 5
-    assert bn_weight.ndim == bn_bias.ndim == 1
-    bsize, x_channels, H, W, D = x.shape
-    in_channels, out_channels = weight.shape[-2:]
-    assert x_channels == next_power_of_2(x_channels)
-    assert list(weight.shape) == [3, 3, 3, in_channels, out_channels]  # 3, 3, 3, in_channels, out_channels
-    assert in_channels == x_channels == bn_weight.numel() == bn_bias.numel()
-    assert out_channels == next_power_of_2(out_channels)
-
-    assert x.is_contiguous(memory_format=torch.channels_last_3d)
-    assert weight.is_contiguous()
-
-    assert x.dtype == weight.dtype == torch.float16
-    assert bn_weight.dtype == bn_bias.dtype == torch.float32
-    
-    assert D_BLOCK == next_power_of_2(D_BLOCK)
-    assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
-    assert CIN_BLOCK <= in_channels
-
-    ACCTYPE = tl.float32
-    output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
-    grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK))
-    mean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
-    sqmean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
-
-    numel_no_channels = bsize * H * W * D
-
-    for unbatched_x, unbatched_y, unbatched_mean, unbatched_sqmean in zip(x, output, mean, sqmean):
-        _ApplyBNReLUConvStats_cl3d_impl[grid](
-            unbatched_x,
-            bn_weight,
-            bn_bias,
-            weight,
-            unbatched_y,
-            unbatched_mean,
-            unbatched_sqmean,
-            H,
-            W,
-            D,
-            D_BLOCK=D_BLOCK,
-            ACCTYPE=ACCTYPE,
-            IN_CHANNELS=in_channels,
-            OUT_CHANNELS=out_channels,
-            CIN_BLOCK=CIN_BLOCK,
-            num_warps=num_warps,
-        )
-
-    return output, mean.sum(dim=(0, 1)) / numel_no_channels, sqmean.sum(dim=(0, 1)) / numel_no_channels
+def Conv3d(x, weight, *, IMPL_ID: ConfArg):
+    """3x3x3 convolution, padding 1, of channels_last_3d fp16 `x` with `weight` [3, 3, 3, in, out]; IMPL_ID indexes IMPLEMENTATIONS."""
+    return IMPLEMENTATIONS[IMPL_ID](x, weight)
 
 
 def generate_inputs_conv(problem_sizes, device='cuda'):
     in_channels, out_channels = problem_sizes['in_channels'], problem_sizes['out_channels']
+    channels = max(in_channels, out_channels)
+    size = 256 if channels <= 32 else 192 if channels <= 64 else 128
 
-    if in_channels <= 32 and out_channels <= 32:
-        base = 128
-    elif in_channels <= 64 and out_channels <= 64:
-        base = 96
-    else:
-        base = 64
-
-    x = torch.randn(1, in_channels, base, base, base, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
-    w = torch.randn(3, 3, 3, in_channels, out_channels, device=device, dtype=torch.float16)
+    x = torch.randn(1, in_channels, size, size, size, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    w = torch.randn(3, 3, 3, in_channels, out_channels, device=device, dtype=torch.float16) / (27 * in_channels) ** 0.5
 
     return x, w
 
 
-def generate_inputs_bnreluconv(problem_sizes, device='cuda'):
-    x, w = generate_inputs_conv(problem_sizes, device)
-
-    in_channels = problem_sizes['in_channels']
-    bn_weight = torch.randn(in_channels, device=device, dtype=torch.float32)
-    bn_bias = torch.randn(in_channels, device=device, dtype=torch.float32)
-
-    return x, bn_weight, bn_bias, w
+def cudnn_conv(x, weight):
+    return F.conv3d(x, weight.permute(4, 3, 0, 1, 2), padding=1)
 
 
-def pruning_rule(problem_size, named_config):
-    D_BLOCK = named_config['D_BLOCK']
-    CIN_BLOCK = named_config['CIN_BLOCK']
+# Error budget (max 5e-3, mean 4e-4 of the output std, see test_conv): an fp16 partial may span at most 64 products (4 mma).
+# The search spaces below keep what won on the RTX 4090: tiled halo with one stage and BLOCK_K 16 everywhere,
+# implicit GEMM for >= 64 channels with the tiles that were competitive.
 
-    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
-
-    if in_channels >= 32 and out_channels >= 32 and D_BLOCK > 32:
-        return False
-
-    if (in_channels >= 128 or out_channels >= 128) and D_BLOCK > 16:
-        return False
-
-    if CIN_BLOCK > in_channels:
-        return False
-
-    return True
+def _fits_registers_and_warps(problem_size, positions, rows, warps_m, warps_n):
+    """mma warps tile `rows` x out channels, and fp32 accumulators of all positions take at most 128 registers a thread."""
+    out_channels = problem_size['out_channels']
+    accumulators = positions * rows * out_channels // (32 * warps_m * warps_n)
+    return 16 * warps_m <= rows and 8 * warps_n <= out_channels and accumulators <= 128
 
 
-def autotune_conv(toml_path, **autotune_kwargs):
-    channels = [2 ** i for i in range(4, 8)]
-    problem_sizes = [
-        {'in_channels': cin, 'out_channels': cout}
-        for cin in channels
-        for cout in channels
-        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
-    ]
-
-    autotune(
-        getattr(Conv3d, 'function', Conv3d),
-        generate_inputs_conv,
-        problem_sizes,
-        pruning_rule,
-        toml_path,
-        **autotune_kwargs,
-        num_warps=[2, 4],
-        D_BLOCK=[16, 32, 64],
-        CIN_BLOCK=[16, 32, 64],
-        LOAD_WEIGHT_FIRST=[True, False],
-        WEIGHT_MAJOR=[True, False]
+def pruning_rule_tiled_halo(problem_size, config):
+    planes = (config['TH'] + 2) * (config['TW'] + 2)
+    shared = 2 * config['NUM_STAGES'] * config['BLOCK_K'] * (planes * config['TD'] + 9 * problem_size['out_channels'])
+    return (
+        config['BLOCK_K'] <= problem_size['in_channels']
+        and 3 * config['BLOCK_K'] <= 64
+        and shared <= 99 * 1024
+        and _fits_registers_and_warps(problem_size, config['TH'] * config['TW'], config['TD'], config['WARPS_M'], config['WARPS_N'])
     )
 
 
-def autotune_bnreluconv(toml_path, **autotune_kwargs):
+IMPLICIT_GEMM_TILES = {(1, 2, 64), (2, 2, 32), (1, 1, 64), (1, 4, 64), (2, 2, 64), (1, 1, 128)}
+IMPLICIT_GEMM_WARPS = {(4, 1), (2, 2), (4, 2)}
+
+
+def pruning_rule_implicit_gemm(problem_size, config):
+    rows = config['TILE_H'] * config['TILE_W'] * config['TILE_D']
+    shared = 2 * config['NUM_STAGES'] * config['BLOCK_K'] * (rows + problem_size['out_channels'])
+    return (
+        max(problem_size.values()) >= 64
+        and (config['TILE_H'], config['TILE_W'], config['TILE_D']) in IMPLICIT_GEMM_TILES
+        and (config['WARPS_M'], config['WARPS_N']) in IMPLICIT_GEMM_WARPS
+        and config['BLOCK_K'] <= problem_size['in_channels']
+        and config['FP16_CHAIN'] * config['BLOCK_K'] <= 64
+        and shared <= 99 * 1024
+        and _fits_registers_and_warps(problem_size, 1, rows, config['WARPS_M'], config['WARPS_N'])
+    )
+
+
+def channel_pairs():
     channels = [2 ** i for i in range(4, 8)]
-    problem_sizes = [
+    return [
         {'in_channels': cin, 'out_channels': cout}
-        for cin in channels
-        for cout in channels
+        for cin, cout in itertools.product(channels, channels)
         if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
     ]
 
+
+def autotune_conv_tiled_halo(toml_path, **autotune_kwargs):
     autotune(
-        getattr(ApplyBNReLUConv3dStats, 'function', ApplyBNReLUConv3dStats),
-        generate_inputs_bnreluconv,
-        problem_sizes,
-        pruning_rule,
-        toml_path,
-        **autotune_kwargs,
-        num_warps=[2, 4],
-        D_BLOCK=[16, 32, 64],
-        CIN_BLOCK=[16, 32, 64],
+        Conv3dTiledHalo.function, generate_inputs_conv, channel_pairs(), pruning_rule_tiled_halo, toml_path,
+        comparator=cudnn_conv, **autotune_kwargs,
+        BLOCK_K=[16], TH=[2, 4, 8], TW=[2, 4, 8], TD=[16, 32, 64], NUM_STAGES=[1], WARPS_M=[1, 2, 4], WARPS_N=[1, 2, 4],
+        POSITION_MAJOR=[False, True],
+    )
+
+
+def autotune_conv_implicit_gemm(toml_path, **autotune_kwargs):
+    autotune(
+        Conv3dImplicitGemm.function, generate_inputs_conv, channel_pairs(), pruning_rule_implicit_gemm, toml_path,
+        comparator=cudnn_conv, **autotune_kwargs,
+        BLOCK_K=[32, 64], TILE_H=[1, 2], TILE_W=[1, 2, 4], TILE_D=[32, 64, 128], NUM_STAGES=[2, 3], WARPS_M=[2, 4], WARPS_N=[1, 2],
+        FP16_CHAIN=[1, 2], VEC=[4, 8],
+    )
+
+
+def autotune_conv(toml_path, **autotune_kwargs):
+    """Picks the implementation per channel pair; run after the implementations' own autotunes."""
+    autotune(
+        Conv3d.function, generate_inputs_conv, channel_pairs(), None, toml_path,
+        comparator=cudnn_conv, **autotune_kwargs,
+        IMPL_ID=list(range(len(IMPLEMENTATIONS))),
     )

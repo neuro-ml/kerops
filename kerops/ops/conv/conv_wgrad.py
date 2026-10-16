@@ -2,7 +2,7 @@ import torch
 from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
-from ...kernels.conv import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitk_impl, _Conv_wgrad_cl3d_splitk_3acc_impl
+from ...kernels.conv_bprop import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitk_impl, _Conv_wgrad_cl3d_splitk_3acc_impl
 from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 

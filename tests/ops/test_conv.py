@@ -5,7 +5,12 @@ from torch import nn
 from torch.nn import functional as F
 
 from kerops.ops.conv import Conv3d, Conv3dWgrad
-from kerops.utils import allclose_two_stage, weight_grad_similarity
+from kerops.utils import weight_grad_similarity
+
+
+# Error budget of Conv3d (fp16 partial sums), relative to the output std of an fp32 reference.
+CONV_MAX_ERROR = 5e-3
+CONV_MEAN_ERROR = 4e-4
 
 
 # TODO: small shapes causes recompilations for some reasons regardless of configuration
@@ -14,7 +19,7 @@ def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, othe
         return
     
     torch.manual_seed(322)
-    x = torch.randn(bsize, conv_in_channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(
+    x = torch.randn(bsize, conv_in_channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).relu().to(
         memory_format=torch.channels_last_3d
     )
 
@@ -23,18 +28,12 @@ def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, othe
 
     weight_kernel = weight.permute(2, 3, 4, 1, 0).contiguous()
 
-    out_standard = F.conv3d(x, weight, None, padding=(1, 1, 1), stride=(1, 1, 1))
+    with torch.backends.cudnn.flags(enabled=True, allow_tf32=False):
+        out_standard = F.conv3d(x.float(), weight.float(), None, padding=(1, 1, 1), stride=(1, 1, 1))
     out_check = Conv3d(x, weight_kernel)
 
-    assert allclose_two_stage(
-        out_standard,
-        out_check,
-        rtol_strict=1e-4,
-        atol_strict=1e-3,
-        rtol_narrow=1e-3,
-        atol_narrow=2e-3,
-        debug_info='print',
-    )
+    error = (out_check.float() - out_standard).abs() / out_standard.std()
+    assert error.max() <= CONV_MAX_ERROR and error.mean() <= CONV_MEAN_ERROR, f'max {error.max():.1e}, mean {error.mean():.1e}'
 
     torch.cuda.empty_cache()
 
