@@ -25,3 +25,19 @@ Time comparison (ms) for NVidia RTX 3090. Input is an array of size (1, channels
 | 32                   |   2.40    |         4.80 (x2.00) |     24.6 (x10.25)   |
 | 64                   |   4.78    |         8.72 (x1.82) |     71.3 (x14.91)   |
 | 128                  |   9.55    |         17.9 (x1.87) |     245.0 (x25.65)  |
+
+
+Time comparison (ms) for NVidia RTX 4090: `kerops.ops.conv.Conv3d` against cuDNN (`torch.nn.functional.conv3d`), kernel_size=3, padding=1, bias=False. Input is an array of size (1, in_channels, size, size, size); float16; <b>channels_last_3d</b>. Speedup over cuDNN is shown in parentheses. Partial sums are accumulated in float16, so the error is up to 5e-3 (max) and 4e-4 (mean) of the output std.
+
+| channels in → out | size |   cuDNN   | kerops.ops.conv.Conv3d |
+|:-----------------:|:----:|:---------:|:----------------------:|
+| 16 → 16           | 256  |   2.15    |      1.60 (x1.34)      |
+| 16 → 32           | 256  |   3.46    |      2.74 (x1.26)      |
+| 32 → 16           | 256  |   4.45    |      3.13 (x1.42)      |
+| 32 → 32           | 256  |   6.80    |      5.01 (x1.36)      |
+| 32 → 64           | 192  |   5.16    |      3.75 (x1.38)      |
+| 64 → 32           | 192  |   5.60    |      4.29 (x1.30)      |
+| 64 → 64           | 192  |   9.74    |      7.39 (x1.32)      |
+| 64 → 128          | 128  |   5.65    |      4.03 (x1.40)      |
+| 128 → 64          | 128  |   5.66    |      4.30 (x1.32)      |
+| 128 → 128         | 128  |   10.98   |      7.90 (x1.39)      |
