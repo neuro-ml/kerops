@@ -1,0 +1,15 @@
+.git
+.venv
+.vscode
+.env
+*.pem
+*.key
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+.ipynb_checkpoints
+notebooks
+PROF
+*.ncu-rep
+*.nsys-rep

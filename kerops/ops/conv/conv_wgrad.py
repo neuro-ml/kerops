@@ -380,7 +380,6 @@ def autotune_conv_wgrad_splitk(toml_path, **autotune_kwargs):
         CIN_BLOCK=channels,
         COUT_BLOCK=channels,
         SPLIT_K=[4, 8, 16],
-        n_iters=85
     )
 
 
@@ -407,7 +406,6 @@ def autotune_conv_wgrad_splitk_3acc(toml_path, **autotune_kwargs):
         CIN_BLOCK=channels,
         COUT_BLOCK=channels,
         SPLIT_K=[8, 16, 32],
-        n_iters=85
     )
 
 
@@ -427,8 +425,8 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
         pruning_rule=None,
         toml_path=toml_path,
         comparator=comparator,
+        rep_ms=200,
         **autotune_kwargs,
         IMPL_ID=[0, 1, 2],
         SWAP_GRAD_X=[False, True],
-        n_iters=200
     )
