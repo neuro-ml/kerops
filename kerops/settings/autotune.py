@@ -1,4 +1,5 @@
 import itertools
+import json
 import tomllib
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -8,51 +9,91 @@ from pathlib import Path
 from typing import Callable
 from warnings import warn
 
+import triton
 from tqdm.auto import tqdm
-from triton.runtime.jit import KernelInterface
+from triton import knobs, language as tl
+from triton.compiler.compiler import ASTSource, make_backend
+from triton.experimental.gluon._runtime import GluonASTSource
+from triton.runtime import driver
+from triton.runtime.jit import convert_to_tuple_if_list
 from triton.testing import do_bench
 
 from .utils import get_device_name_from_args
 
+# (kernel module, kernel name, triton's serialized specialization): one kernel binary to compile
+Compilation = tuple[str, str, str]
 
-def _compile_instead_of_launch(kernel, grid):
-    return lambda *args, **kwargs: kernel.run(*args, grid=grid, warmup=True, **kwargs)
+# The fastest configs of the first pass are timed again, longer and in interleaved rounds: one pass times configs one
+# after another while the GPU warms up, which reorders configs that are within a few percent of each other.
+FINALISTS = 8
+FINAL_REP_MS = 300
+FINAL_ROUNDS = 3
 
 
-def compile_configs(func_path: tuple[str, str], generate_inputs: Callable, problem_size: dict, configs: list[dict], n_threads: int) -> list[str]:
-    """Worker process: compiles the kernels `func` launches for each config into triton's disk cache; returns tracebacks, '' where compiled."""
-    KernelInterface.__getitem__ = _compile_instead_of_launch
-    module, name = func_path
-    func = getattr(import_module(module), name)
-    func = getattr(func, 'function', func)
-    args = generate_inputs(problem_size)
+def record_compilations(func, args, config) -> tuple[list[Compilation], str]:
+    """Kernels `func` needs for `config`, recorded instead of compiled or launched; the traceback if it raised, else ''."""
+    compilations = []
 
-    def compile_config(config):
-        try:
-            func(*args, **config)
-        except Exception as e:
-            return ''.join(traceback.format_exception(e))
-        return ''
+    def skip_compilation(fn, compile, **_):
+        compilations.append((fn.module, fn.name, compile['specialization_data']))
+        return True
 
+    knobs.runtime.jit_cache_hook = skip_compilation
+    try:
+        func(*args, **config)
+    except Exception as e:
+        return compilations, ''.join(traceback.format_exception(e))
+    finally:
+        knobs.runtime.jit_cache_hook = None
+    return compilations, ''
+
+
+def compile_specialization(compilation: Compilation, target) -> str:
+    """Compiles into triton's disk cache like `JITFunction.preload`, but without touching the GPU; the traceback or ''."""
+    module, name, specialization_data = compilation
+    try:
+        kernel = getattr(import_module(module), name)
+        data = json.loads(specialization_data)
+        constexprs = {
+            tuple(key): tl.dtype(value) if tl.dtype.is_dtype(value) else
+            tl.constexpr(value['constexpr']) if isinstance(value, dict) and 'constexpr' in value else value
+            for key, value in zip(data['constant_keys'], data['constant_vals'])
+        }
+        attrs = {tuple(key): value for key, value in zip(data['attrs_keys'], data['attrs_vals'])}
+        signature = {key: convert_to_tuple_if_list(value) for key, value in data['signature'].items()}
+        options = {key: tuple(value) if isinstance(value, list) else value for key, value in data['options'].items()}
+        options = make_backend(target).parse_options(options)
+        source = (GluonASTSource if kernel.is_gluon() else ASTSource)(kernel, signature, constexprs, attrs)
+        triton.compile(source, target=target, options=options.__dict__)
+    except Exception as e:
+        return ''.join(traceback.format_exception(e))
+    return ''
+
+
+def compile_specializations(compilations: list[Compilation], target, n_threads: int) -> list[str]:
+    """Worker process: compiles in `n_threads` threads; tracebacks, '' where compiled."""
     with ThreadPoolExecutor(n_threads) as threads:
-        return list(threads.map(compile_config, configs))
+        return list(threads.map(compile_specialization, compilations, itertools.repeat(target)))
 
 
 def compile_in_processes(func, generate_inputs, problem_sizes, configs_per_size, n_processes, n_threads) -> list[list[str]]:
-    """Tracebacks per problem size and config, '' where compiled."""
-    func_path = (func.__module__, func.__qualname__)
+    """Compiles every config into triton's disk cache in GPU-free processes; tracebacks per problem size and config, '' where compiled."""
+    recorded_per_size = []
+    for problem_size, configs in zip(problem_sizes, configs_per_size):
+        args = generate_inputs(problem_size)
+        recorded_per_size.append([record_compilations(func, args, config) for config in configs])
+        del args
+
+    unique = sorted({compilation for recorded in recorded_per_size for compilations, _ in recorded for compilation in compilations})
+    target = driver.active.get_current_target()
     with ProcessPoolExecutor(n_processes, mp_context=get_context('spawn')) as pool:
-        futures_per_size = [
-            [
-                pool.submit(compile_configs, func_path, generate_inputs, problem_size, configs[i:i + n_threads], n_threads)
-                for i in range(0, len(configs), n_threads)
-            ]
-            for problem_size, configs in zip(problem_sizes, configs_per_size)
-        ]
-        return [
-            [error for future in futures for error in future.result()]
-            for futures in tqdm(futures_per_size, desc='Compiling')
-        ]
+        futures = [pool.submit(compile_specializations, unique[i:i + n_threads], target, n_threads) for i in range(0, len(unique), n_threads)]
+        compile_errors = dict(zip(unique, (error for future in tqdm(futures, desc='Compiling') for error in future.result())))
+
+    return [
+        [error or next((compile_errors[c] for c in compilations if compile_errors[c]), '') for compilations, error in recorded]
+        for recorded in recorded_per_size
+    ]
 
 
 def bench_ms(func, args, config, warmup_ms, rep_ms) -> float:
@@ -60,6 +101,17 @@ def bench_ms(func, args, config, warmup_ms, rep_ms) -> float:
         return do_bench(lambda: func(*args, **config), warmup=warmup_ms, rep=rep_ms, return_mode='median')
     except Exception:
         return float('inf')
+
+
+def best_of_finalists(func, args, finalists: list[dict], warmup_ms) -> tuple[float, dict]:
+    """(median ms, config) of the fastest finalist over FINAL_ROUNDS interleaved rounds."""
+    timings = [[] for _ in finalists]
+    for _ in range(FINAL_ROUNDS):
+        for config_timings, config in zip(timings, finalists):
+            config_timings.append(bench_ms(func, args, config, warmup_ms, FINAL_REP_MS))
+    medians = [sorted(config_timings)[len(config_timings) // 2] for config_timings in timings]
+    best = min(range(len(finalists)), key=medians.__getitem__)
+    return medians[best], finalists[best]
 
 
 def write_toml(path: Path, device: str, problem_size_names: list[str], entries: list[dict]) -> None:
@@ -105,19 +157,22 @@ def autotune(
     entries = []
     devices = set()
     for problem_size, configs, errors in tqdm(list(zip(problem_sizes, configs_per_size, errors_per_size)), desc='Benchmarking'):
+        if not configs:
+            continue
         if all(errors):
             raise RuntimeError(f'Compilation failed for {problem_size} - all configs cause exception.\nExample:\n{errors[0]}')
 
         args = generate_inputs(problem_size)
         devices.add(get_device_name_from_args(*args))
         timings = [float('inf') if error else bench_ms(func, args, config, warmup_ms, rep_ms) for config, error in zip(configs, errors)]
-        best_ms, best = min(zip(timings, configs), key=lambda timing_config: timing_config[0])
-        if best_ms == float('inf'):
+        ranked = sorted((index for index, timing in enumerate(timings) if timing != float('inf')), key=timings.__getitem__)
+        if not ranked:
             warn(f'No valid configs for {problem_size=}, skipping', stacklevel=2)
             continue
+        best_ms, best = best_of_finalists(func, args, [configs[index] for index in ranked[:FINALISTS]], warmup_ms)
 
         if comparator is not None:
-            ratio = do_bench(lambda: comparator(*args), warmup=warmup_ms, rep=rep_ms, return_mode='median') / best_ms
+            ratio = do_bench(lambda: comparator(*args), warmup=warmup_ms, rep=FINAL_REP_MS, return_mode='median') / best_ms
             print(f'{problem_size=} best ratio - {ratio:.3f} (bigger is better)')
 
         entries.append({'problem_sizes': list(problem_size.values()), **best})
