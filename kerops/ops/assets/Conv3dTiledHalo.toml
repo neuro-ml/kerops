@@ -6,12 +6,12 @@ problem_size_names = ['in_channels', 'out_channels']
   problem_sizes = [16, 16]
   BLOCK_K = 16
   TH = 4
-  TW = 4
-  TD = 16
+  TW = 2
+  TD = 32
   NUM_STAGES = 1
-  WARPS_M = 1
+  WARPS_M = 2
   WARPS_N = 2
-  POSITION_MAJOR = true
+  POSITION_MAJOR = false
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [16, 32]
@@ -27,31 +27,31 @@ problem_size_names = ['in_channels', 'out_channels']
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [32, 16]
   BLOCK_K = 16
-  TH = 4
-  TW = 4
-  TD = 16
+  TH = 8
+  TW = 2
+  TD = 32
   NUM_STAGES = 1
-  WARPS_M = 1
+  WARPS_M = 2
   WARPS_N = 2
   POSITION_MAJOR = true
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [32, 32]
   BLOCK_K = 16
-  TH = 8
-  TW = 2
+  TH = 2
+  TW = 8
   TD = 32
   NUM_STAGES = 1
-  WARPS_M = 1
-  WARPS_N = 4
+  WARPS_M = 2
+  WARPS_N = 2
   POSITION_MAJOR = true
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [32, 64]
   BLOCK_K = 16
-  TH = 2
-  TW = 4
-  TD = 32
+  TH = 4
+  TW = 2
+  TD = 16
   NUM_STAGES = 1
   WARPS_M = 1
   WARPS_N = 4
@@ -84,9 +84,9 @@ problem_size_names = ['in_channels', 'out_channels']
   BLOCK_K = 16
   TH = 2
   TW = 2
-  TD = 16
+  TD = 32
   NUM_STAGES = 1
-  WARPS_M = 1
+  WARPS_M = 2
   WARPS_N = 4
   POSITION_MAJOR = false
 
@@ -105,9 +105,9 @@ problem_size_names = ['in_channels', 'out_channels']
   problem_sizes = [128, 128]
   BLOCK_K = 16
   TH = 2
-  TW = 4
-  TD = 16
+  TW = 2
+  TD = 32
   NUM_STAGES = 1
-  WARPS_M = 1
+  WARPS_M = 2
   WARPS_N = 4
   POSITION_MAJOR = true

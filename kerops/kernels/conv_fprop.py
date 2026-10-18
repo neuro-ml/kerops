@@ -43,7 +43,7 @@ def _store_position(out_ptr, acc, h, w, d0, H, W, D, COUT: gl.constexpr, TD: gl.
 
 @gluon.jit
 def _issue_halo_loads(
-    step, x_ptr, w_ptr, a_smem, w_smem, h0, w0, d, H, W, D, k_a, k_w, n,
+    step, x_ptr, w_ptr, a_planes, w_taps, h0, w0, d, H, W, D, k_a, k_w, n,
     CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr, NUM_STAGES: gl.constexpr, TH: gl.constexpr, TW: gl.constexpr,
 ):
     # Step (cin block, kd): the (TH+2) x (TW+2) H/W halo planes of the input rows shifted by kd, and the 9 (kh, kw)
@@ -60,10 +60,10 @@ def _issue_halo_loads(
         h = h0 + plane // (TW + 2) - 1
         w = w0 + plane % (TW + 2) - 1
         inside = rows_inside & (h >= 0) & (h < H) & (w >= 0) & (w < W)
-        cp.async_copy_global_to_shared(a_smem.index(stage * PLANES + plane), x_ptr + (h * W + w) * D * CIN + a_cols, mask=inside[:, None])
+        cp.async_copy_global_to_shared(a_planes[plane].index(stage), x_ptr + (h * W + w) * D * CIN + a_cols, mask=inside[:, None])
     for tap_hw in gl.static_range(9):
         w_rows = (tap_hw * 3 + kd) * CIN + cin_offset + k_w
-        cp.async_copy_global_to_shared(w_smem.index(stage * 9 + tap_hw), w_ptr + w_rows[:, None] * COUT + n[None, :])
+        cp.async_copy_global_to_shared(w_taps[tap_hw].index(stage), w_ptr + w_rows[:, None] * COUT + n[None, :])
     cp.commit_group()
 
 
@@ -100,36 +100,41 @@ def _Conv_cl3d_tiled_halo(
     k_w = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(1, w_layout))
     n = gl.arange(0, COUT, layout=gl.SliceLayout(0, w_layout))
 
-    a_smem = gl.allocate_shared_memory(gl.float16, [NUM_STAGES * PLANES, TD, BLOCK_K], _swizzled_layout(BLOCK_K))
-    w_smem = gl.allocate_shared_memory(gl.float16, [NUM_STAGES * 9, BLOCK_K, COUT], _swizzled_layout(COUT))
+    # One allocation per plane and per tap: the barrier pass treats an allocation as a single buffer and would put a
+    # barrier before every copy into it.
+    a_planes = ()
+    for plane in gl.static_range(PLANES):
+        a_planes = a_planes + (gl.allocate_shared_memory(gl.float16, [NUM_STAGES, TD, BLOCK_K], _swizzled_layout(BLOCK_K)),)
+    w_taps = ()
+    for tap_hw in gl.static_range(9):
+        w_taps = w_taps + (gl.allocate_shared_memory(gl.float16, [NUM_STAGES, BLOCK_K, COUT], _swizzled_layout(COUT)),)
 
     for step in gl.static_range(NUM_STAGES - 1):
-        _issue_halo_loads(step, x_ptr, w_ptr, a_smem, w_smem, h0, w0, d, H, W, D, k_a, k_w, n, CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW)
+        _issue_halo_loads(step, x_ptr, w_ptr, a_planes, w_taps, h0, w0, d, H, W, D, k_a, k_w, n, CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW)
 
     accs = (gl.zeros([TD, COUT], gl.float32, mma_layout),) * POSITIONS
     for step in range(STEPS):
         _issue_halo_loads(
-            step + NUM_STAGES - 1, x_ptr, w_ptr, a_smem, w_smem, h0, w0, d, H, W, D, k_a, k_w, n, CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW
+            step + NUM_STAGES - 1, x_ptr, w_ptr, a_planes, w_taps, h0, w0, d, H, W, D, k_a, k_w, n, CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW
         )
         cp.wait_group(NUM_STAGES - 1)
-        planes = step % NUM_STAGES * PLANES
-        weights = step % NUM_STAGES * 9
+        stage = step % NUM_STAGES
         if POSITION_MAJOR:
             for position in gl.static_range(POSITIONS):
                 for kh in gl.static_range(3):
                     part = gl.zeros([TD, COUT], gl.float16, mma_layout)
                     for kw in gl.static_range(3):
-                        b = w_smem.index(weights + kh * 3 + kw).load(b_dot_layout)
-                        a = a_smem.index(planes + (position // TW + kh) * (TW + 2) + position % TW + kw).load(a_dot_layout)
+                        b = w_taps[kh * 3 + kw].index(stage).load(b_dot_layout)
+                        a = a_planes[(position // TW + kh) * (TW + 2) + position % TW + kw].index(stage).load(a_dot_layout)
                         part = mma_v2(a, b, part)
                     accs = _with_item(accs, position, accs[position] + part.to(gl.float32))
         else:
             for kh in gl.static_range(3):
                 parts = (gl.zeros([TD, COUT], gl.float16, mma_layout),) * POSITIONS
                 for kw in gl.static_range(3):
-                    b = w_smem.index(weights + kh * 3 + kw).load(b_dot_layout)
+                    b = w_taps[kh * 3 + kw].index(stage).load(b_dot_layout)
                     for position in gl.static_range(POSITIONS):
-                        a = a_smem.index(planes + (position // TW + kh) * (TW + 2) + position % TW + kw).load(a_dot_layout)
+                        a = a_planes[(position // TW + kh) * (TW + 2) + position % TW + kw].index(stage).load(a_dot_layout)
                         parts = _with_item(parts, position, mma_v2(a, b, parts[position]))
                 for position in gl.static_range(POSITIONS):
                     accs = _with_item(accs, position, accs[position] + parts[position].to(gl.float32))
