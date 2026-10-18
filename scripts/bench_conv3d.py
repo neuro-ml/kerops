@@ -6,15 +6,13 @@ import torch
 from torch.nn import functional as F
 from triton.testing import do_bench
 
-from kerops.ops.conv import Conv3d, Conv3dImplicitGemm, Conv3dTiledHalo
+from kerops.ops.conv import Conv3d
 from kerops.ops.conv.conv import channel_pairs
 
 # Each implementation takes the input, the torch-layout weight and the kerops-layout weight.
 IMPLEMENTATIONS = {
     'cudnn': lambda x, weight, weight_kernel: F.conv3d(x, weight, padding=1),
     'kerops': lambda x, weight, weight_kernel: Conv3d(x, weight_kernel),
-    'tiled_halo': lambda x, weight, weight_kernel: Conv3dTiledHalo(x, weight_kernel),
-    'implicit_gemm': lambda x, weight, weight_kernel: Conv3dImplicitGemm(x, weight_kernel),
 }
 
 INPUTS = {

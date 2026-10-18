@@ -5,13 +5,13 @@ from torch.nn import functional as F
 from triton import next_power_of_2
 
 from ..assets import ASSETS_ROOT
-from ...kernels.conv_fprop import _Conv_cl3d_implicit_gemm, _Conv_cl3d_tiled_halo
+from ...kernels.conv_fprop import _Conv_cl3d_tiled_halo
 from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
 def conv_shapes(x, weight):
-    """(batch, H, W, D, in channels, out channels), after checking the layout every Conv3d implementation expects."""
+    """(batch, H, W, D, in channels, out channels), after checking the layout Conv3d expects."""
     assert x.is_cuda and x.device == weight.device
     assert x.ndim == 5 and weight.ndim == 5
     bsize, in_channels, H, W, D = x.shape
@@ -33,20 +33,21 @@ def _problem_sizes(weight):
     return tuple(weight.shape[-2:])
 
 
-conv3d_tiled_halo_config = TableKernelConfig(
+conv3d_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
     confarg_names=['BLOCK_K', 'TH', 'TW', 'TD', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'POSITION_MAJOR'],
     args_to_problem_sizes=_problem_sizes,
-    toml_path=ASSETS_ROOT / 'Conv3dTiledHalo.toml'
+    toml_path=ASSETS_ROOT / 'Conv3d.toml'
 )
 
 
-@ConfiguredFunction.configure(conv3d_tiled_halo_config)
-def Conv3dTiledHalo(
+@ConfiguredFunction.configure(conv3d_config)
+def Conv3d(
     x, weight, *,
     BLOCK_K: ConfArg, TH: ConfArg, TW: ConfArg, TD: ConfArg, NUM_STAGES: ConfArg, WARPS_M: ConfArg, WARPS_N: ConfArg,
     POSITION_MAJOR: ConfArg,
 ):
+    """3x3x3 convolution, padding 1, of channels_last_3d fp16 `x` with `weight` [3, 3, 3, in, out]."""
     bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)
     output = channels_last_output(x, out_channels)
     grid = (cdiv(W, TW), cdiv(H, TH), cdiv(D, TD) * bsize)
@@ -55,46 +56,6 @@ def Conv3dTiledHalo(
         POSITION_MAJOR, num_warps=WARPS_M * WARPS_N,
     )
     return output
-
-
-conv3d_implicit_gemm_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['BLOCK_K', 'TILE_H', 'TILE_W', 'TILE_D', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'FP16_CHAIN', 'VEC'],
-    args_to_problem_sizes=_problem_sizes,
-    toml_path=ASSETS_ROOT / 'Conv3dImplicitGemm.toml'
-)
-
-
-@ConfiguredFunction.configure(conv3d_implicit_gemm_config)
-def Conv3dImplicitGemm(
-    x, weight, *,
-    BLOCK_K: ConfArg, TILE_H: ConfArg, TILE_W: ConfArg, TILE_D: ConfArg, NUM_STAGES: ConfArg, WARPS_M: ConfArg, WARPS_N: ConfArg,
-    FP16_CHAIN: ConfArg, VEC: ConfArg,
-):
-    bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)
-    output = channels_last_output(x, out_channels)
-    grid = (cdiv(W, TILE_W), cdiv(H, TILE_H), cdiv(D, TILE_D) * bsize)
-    _Conv_cl3d_implicit_gemm[grid](
-        x, weight, output, H, W, D, in_channels, out_channels, BLOCK_K, TILE_H, TILE_W, TILE_D, NUM_STAGES, WARPS_M, WARPS_N,
-        FP16_CHAIN, VEC, num_warps=WARPS_M * WARPS_N,
-    )
-    return output
-
-
-IMPLEMENTATIONS = (Conv3dTiledHalo, Conv3dImplicitGemm)
-
-conv3d_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['IMPL_ID'],
-    args_to_problem_sizes=_problem_sizes,
-    toml_path=ASSETS_ROOT / 'Conv3d.toml'
-)
-
-
-@ConfiguredFunction.configure(conv3d_config)
-def Conv3d(x, weight, *, IMPL_ID: ConfArg):
-    """3x3x3 convolution, padding 1, of channels_last_3d fp16 `x` with `weight` [3, 3, 3, in, out]; IMPL_ID indexes IMPLEMENTATIONS."""
-    return IMPLEMENTATIONS[IMPL_ID](x, weight)
 
 
 def generate_inputs_conv(problem_sizes, device='cuda'):
@@ -113,8 +74,7 @@ def cudnn_conv(x, weight):
 
 
 # Error budget (max 5e-3, mean 4e-4 of the output std, see test_conv): an fp16 partial may span at most 64 products (4 mma).
-# The search spaces below keep what won on the RTX 4090: tiled halo with one stage and BLOCK_K 16 everywhere,
-# implicit GEMM for >= 64 channels with the tiles that were competitive.
+# The search space keeps what won on the RTX 4090: one stage and BLOCK_K 16.
 
 def _fits_registers_and_warps(problem_size, positions, rows, warps_m, warps_n):
     """mma warps tile `rows` x out channels, and fp32 accumulators of all positions take at most 128 registers a thread."""
@@ -134,24 +94,6 @@ def pruning_rule_tiled_halo(problem_size, config):
     )
 
 
-IMPLICIT_GEMM_TILES = {(1, 2, 64), (2, 2, 32), (1, 1, 64), (1, 4, 64), (2, 2, 64), (1, 1, 128)}
-IMPLICIT_GEMM_WARPS = {(4, 1), (2, 2), (4, 2)}
-
-
-def pruning_rule_implicit_gemm(problem_size, config):
-    rows = config['TILE_H'] * config['TILE_W'] * config['TILE_D']
-    shared = 2 * config['NUM_STAGES'] * config['BLOCK_K'] * (rows + problem_size['out_channels'])
-    return (
-        max(problem_size.values()) >= 64
-        and (config['TILE_H'], config['TILE_W'], config['TILE_D']) in IMPLICIT_GEMM_TILES
-        and (config['WARPS_M'], config['WARPS_N']) in IMPLICIT_GEMM_WARPS
-        and config['BLOCK_K'] <= problem_size['in_channels']
-        and config['FP16_CHAIN'] * config['BLOCK_K'] <= 64
-        and shared <= 99 * 1024
-        and _fits_registers_and_warps(problem_size, 1, rows, config['WARPS_M'], config['WARPS_N'])
-    )
-
-
 def channel_pairs():
     channels = [2 ** i for i in range(4, 8)]
     return [
@@ -161,28 +103,10 @@ def channel_pairs():
     ]
 
 
-def autotune_conv_tiled_halo(toml_path, **autotune_kwargs):
+def autotune_conv(toml_path, **autotune_kwargs):
     autotune(
-        Conv3dTiledHalo.function, generate_inputs_conv, channel_pairs(), pruning_rule_tiled_halo, toml_path,
+        Conv3d.function, generate_inputs_conv, channel_pairs(), pruning_rule_tiled_halo, toml_path,
         comparator=cudnn_conv, **autotune_kwargs,
         BLOCK_K=[16], TH=[2, 4, 8], TW=[2, 4, 8], TD=[16, 32, 64], NUM_STAGES=[1], WARPS_M=[1, 2, 4], WARPS_N=[1, 2, 4],
         POSITION_MAJOR=[False, True],
-    )
-
-
-def autotune_conv_implicit_gemm(toml_path, **autotune_kwargs):
-    autotune(
-        Conv3dImplicitGemm.function, generate_inputs_conv, channel_pairs(), pruning_rule_implicit_gemm, toml_path,
-        comparator=cudnn_conv, **autotune_kwargs,
-        BLOCK_K=[32, 64], TILE_H=[1, 2], TILE_W=[1, 2, 4], TILE_D=[32, 64, 128], NUM_STAGES=[2, 3], WARPS_M=[2, 4], WARPS_N=[1, 2],
-        FP16_CHAIN=[1, 2], VEC=[4, 8],
-    )
-
-
-def autotune_conv(toml_path, **autotune_kwargs):
-    """Picks the implementation per channel pair; run after the implementations' own autotunes."""
-    autotune(
-        Conv3d.function, generate_inputs_conv, channel_pairs(), None, toml_path,
-        comparator=cudnn_conv, **autotune_kwargs,
-        IMPL_ID=list(range(len(IMPLEMENTATIONS))),
     )

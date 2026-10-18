@@ -1,11 +1,8 @@
-"""Conv3d forward kernels in gluon (sm_80+): cp.async into shared memory, mma_v2, layouts chosen explicitly."""
+"""Conv3d forward kernel in gluon (sm_80+): cp.async into shared memory, mma_v2, layouts chosen explicitly."""
 
 from triton.experimental import gluon
 from triton.experimental.gluon import language as gl
 from triton.experimental.gluon.language.nvidia.ampere import async_copy as cp, mma_v2
-
-TAPS = gl.constexpr(27)
-
 
 @gluon.constexpr_function
 def _rows_layout(row, num_warps, vec):
@@ -162,93 +159,3 @@ def _Conv_cl3d_tiled_halo(
 
     for position in gl.static_range(POSITIONS):
         _store_position(out_ptr, accs[position], h0 + position // TW, w0 + position % TW, d0, H, W, D, COUT, TD, out_layout)
-
-
-@gluon.jit
-def _issue_gemm_loads(
-    step, x_ptr, w_ptr, a_smem, b_smem, row_offsets, h, w, d, H, W, D, k_a, k_b, n,
-    CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr, NUM_STAGES: gl.constexpr,
-):
-    # Steps past the end reload a valid step into a buffer nobody reads, which keeps the loop free of tail cases.
-    wrapped = step % (TAPS * (CIN // BLOCK_K))
-    cin_offset = wrapped // TAPS * BLOCK_K
-    tap = wrapped % TAPS
-    kh = tap // 9 - 1
-    kw = tap // 3 % 3 - 1
-    kd = tap % 3 - 1
-    inside = (h + kh >= 0) & (h + kh < H) & (w + kw >= 0) & (w + kw < W) & (d + kd >= 0) & (d + kd < D)
-    a_rows = row_offsets + ((kh * W + kw) * D + kd) * CIN + cin_offset
-    cp.async_copy_global_to_shared(a_smem.index(step % NUM_STAGES), x_ptr + a_rows[:, None] + k_a[None, :], mask=inside[:, None])
-    b_rows = tap * CIN + cin_offset + k_b
-    cp.async_copy_global_to_shared(b_smem.index(step % NUM_STAGES), w_ptr + b_rows[:, None] * COUT + n[None, :])
-    cp.commit_group()
-
-
-@gluon.jit
-def _Conv_cl3d_implicit_gemm(
-    x_ptr, w_ptr, out_ptr, H, W, D,
-    CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr,
-    TILE_H: gl.constexpr, TILE_W: gl.constexpr, TILE_D: gl.constexpr,
-    NUM_STAGES: gl.constexpr, WARPS_M: gl.constexpr, WARPS_N: gl.constexpr, FP16_CHAIN: gl.constexpr, VEC: gl.constexpr,
-):
-    """Implicit GEMM: M is a TILE_H x TILE_W x TILE_D block of output voxels, N is COUT, K runs over 27 taps x CIN with
-    rows gathered by cp.async into a ring of NUM_STAGES buffers. Products accumulate in an fp16 partial flushed into
-    fp32 every FP16_CHAIN K steps. VEC: fp16 per cp.async."""
-    BLOCK_M: gl.constexpr = TILE_H * TILE_W * TILE_D
-    STEPS: gl.constexpr = TAPS * (CIN // BLOCK_K)
-    NUM_WARPS: gl.constexpr = WARPS_M * WARPS_N
-    mma_layout: gl.constexpr = _mma_layout(WARPS_M, WARPS_N)
-    a_layout: gl.constexpr = _rows_layout(BLOCK_K, NUM_WARPS, VEC)
-    b_layout: gl.constexpr = _rows_layout(COUT, NUM_WARPS, VEC)
-    out_layout: gl.constexpr = _rows_layout(COUT, NUM_WARPS, 8)
-    a_dot_layout: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mma_layout, k_width=2)
-    b_dot_layout: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mma_layout, k_width=2)
-
-    d_blocks = gl.cdiv(D, TILE_D)
-    sample = gl.program_id(2) // d_blocks
-    x_ptr += sample.to(gl.int64) * H * W * D * CIN
-    out_ptr += sample.to(gl.int64) * H * W * D * COUT
-    h0 = gl.program_id(1) * TILE_H
-    w0 = gl.program_id(0) * TILE_W
-    d0 = gl.program_id(2) % d_blocks * TILE_D
-
-    m = gl.arange(0, BLOCK_M, layout=gl.SliceLayout(1, a_layout))
-    h = h0 + m // (TILE_W * TILE_D)
-    w = w0 + m // TILE_D % TILE_W
-    d = d0 + m % TILE_D
-    row_offsets = ((h * W + w) * D + d) * CIN
-    k_a = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(0, a_layout))
-    k_b = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(1, b_layout))
-    n = gl.arange(0, COUT, layout=gl.SliceLayout(0, b_layout))
-
-    a_smem = gl.allocate_shared_memory(gl.float16, [NUM_STAGES, BLOCK_M, BLOCK_K], _swizzled_layout(BLOCK_K))
-    b_smem = gl.allocate_shared_memory(gl.float16, [NUM_STAGES, BLOCK_K, COUT], _swizzled_layout(COUT))
-
-    for step in gl.static_range(NUM_STAGES - 1):
-        _issue_gemm_loads(step, x_ptr, w_ptr, a_smem, b_smem, row_offsets, h, w, d, H, W, D, k_a, k_b, n, CIN, COUT, BLOCK_K, NUM_STAGES)
-
-    acc = gl.zeros([BLOCK_M, COUT], gl.float32, mma_layout)
-    partial = gl.zeros([BLOCK_M, COUT], gl.float16, mma_layout)
-    for step in range(STEPS):
-        _issue_gemm_loads(
-            step + NUM_STAGES - 1, x_ptr, w_ptr, a_smem, b_smem, row_offsets, h, w, d, H, W, D, k_a, k_b, n,
-            CIN, COUT, BLOCK_K, NUM_STAGES,
-        )
-        cp.wait_group(NUM_STAGES - 1)
-        a = a_smem.index(step % NUM_STAGES).load(a_dot_layout)
-        b = b_smem.index(step % NUM_STAGES).load(b_dot_layout)
-        partial = mma_v2(a, b, partial)
-        if step % FP16_CHAIN == FP16_CHAIN - 1:
-            acc += partial.to(gl.float32)
-            partial = gl.zeros([BLOCK_M, COUT], gl.float16, mma_layout)
-    cp.wait_group(0)
-    acc += partial.to(gl.float32)
-
-    mo = gl.arange(0, BLOCK_M, layout=gl.SliceLayout(1, out_layout))
-    ho = h0 + mo // (TILE_W * TILE_D)
-    wo = w0 + mo // TILE_D % TILE_W
-    do = d0 + mo % TILE_D
-    no = gl.arange(0, COUT, layout=gl.SliceLayout(0, out_layout))
-    out_rows = ((ho * W + wo) * D + do) * COUT
-    inside = (ho < H) & (wo < W) & (do < D)
-    gl.store(out_ptr + out_rows[:, None] + no[None, :], gl.convert_layout(acc.to(gl.float16), out_layout), mask=inside[:, None])
