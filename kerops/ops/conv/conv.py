@@ -35,7 +35,7 @@ def _problem_sizes(weight):
 
 conv3d_config = TableKernelConfig(
     problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['BLOCK_K', 'TH', 'TW', 'TD', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'POSITION_MAJOR'],
+    confarg_names=['BLOCK_K', 'TH', 'TW', 'TD', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'POSITION_MAJOR', 'HALO_VEC', 'WEIGHT_VEC'],
     args_to_problem_sizes=_problem_sizes,
     toml_path=ASSETS_ROOT / 'Conv3d.toml'
 )
@@ -45,7 +45,7 @@ conv3d_config = TableKernelConfig(
 def Conv3d(
     x, weight, *,
     BLOCK_K: ConfArg, TH: ConfArg, TW: ConfArg, TD: ConfArg, NUM_STAGES: ConfArg, WARPS_M: ConfArg, WARPS_N: ConfArg,
-    POSITION_MAJOR: ConfArg,
+    POSITION_MAJOR: ConfArg, HALO_VEC: ConfArg, WEIGHT_VEC: ConfArg,
 ):
     """3x3x3 convolution, padding 1, of channels_last_3d fp16 `x` with `weight` [3, 3, 3, in, out]."""
     bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)
@@ -53,7 +53,7 @@ def Conv3d(
     grid = (cdiv(W, TW) * cdiv(H, TH) * cdiv(D, TD) * bsize,)
     _Conv_cl3d_tiled_halo[grid](
         x, weight, output, H, W, D, in_channels, out_channels, BLOCK_K, TH, TW, TD, NUM_STAGES, WARPS_M, WARPS_N,
-        POSITION_MAJOR, num_warps=WARPS_M * WARPS_N,
+        POSITION_MAJOR, HALO_VEC, WEIGHT_VEC, num_warps=WARPS_M * WARPS_N,
     )
     return output
 
@@ -108,5 +108,5 @@ def autotune_conv(toml_path, **autotune_kwargs):
         Conv3d.function, generate_inputs_conv, channel_pairs(), pruning_rule_tiled_halo, toml_path,
         comparator=cudnn_conv, **autotune_kwargs,
         BLOCK_K=[16], TH=[2, 4, 8], TW=[2, 4, 8], TD=[16, 32, 64], NUM_STAGES=[1], WARPS_M=[1, 2, 4], WARPS_N=[1, 2, 4],
-        POSITION_MAJOR=[False, True],
+        POSITION_MAJOR=[False, True], HALO_VEC=[4, 8], WEIGHT_VEC=[4, 8],
     )

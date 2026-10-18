@@ -77,18 +77,19 @@ def _Conv_cl3d_tiled_halo(
     x_ptr, w_ptr, out_ptr, H, W, D,
     CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr, TH: gl.constexpr, TW: gl.constexpr, TD: gl.constexpr,
     NUM_STAGES: gl.constexpr, WARPS_M: gl.constexpr, WARPS_N: gl.constexpr, POSITION_MAJOR: gl.constexpr,
+    HALO_VEC: gl.constexpr, WEIGHT_VEC: gl.constexpr,
 ):
     """TH x TW positions in H/W times TD along D per program. Each pipeline step (cin block, kd) brings the halo planes
     and 9 weights into shared memory; taps index planes, so no plane is copied twice. The 3 taps of one kh row
     accumulate in an fp16 partial flushed into fp32. POSITION_MAJOR runs all taps of one position at a time, keeping
-    one partial live."""
+    one partial live. HALO_VEC and WEIGHT_VEC: fp16 per cp.async of the halo and the weights."""
     PLANES: gl.constexpr = (TH + 2) * (TW + 2)
     POSITIONS: gl.constexpr = TH * TW
     STEPS: gl.constexpr = 3 * (CIN // BLOCK_K)
     NUM_WARPS: gl.constexpr = WARPS_M * WARPS_N
     mma_layout: gl.constexpr = _mma_layout(WARPS_M, WARPS_N)
-    a_layout: gl.constexpr = _rows_layout(BLOCK_K, NUM_WARPS, 4)
-    w_layout: gl.constexpr = _rows_layout(COUT, NUM_WARPS, 4)
+    a_layout: gl.constexpr = _rows_layout(BLOCK_K, NUM_WARPS, HALO_VEC)
+    w_layout: gl.constexpr = _rows_layout(COUT, NUM_WARPS, WEIGHT_VEC)
     out_layout: gl.constexpr = _rows_layout(COUT, NUM_WARPS, 8)
     a_dot_layout: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mma_layout, k_width=2)
     b_dot_layout: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mma_layout, k_width=2)
