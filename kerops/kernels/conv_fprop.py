@@ -42,8 +42,15 @@ def _store_position(out_ptr, acc, h, w, d0, H, W, D, COUT: gl.constexpr, TD: gl.
 
 
 @gluon.jit
+def _add_in_loop(a, b):
+    # An add the compiler cannot hoist out of the step loop: hoisted, each of the (TH+2)*(TW+2) plane offsets would
+    # hold a 64-bit register for the whole loop.
+    return gl.inline_asm_elementwise("add.s32 $0, $1, $2;", "=r,r,r", [a, b], dtype=gl.int32, is_pure=False, pack=1)
+
+
+@gluon.jit
 def _issue_halo_loads(
-    step, x_ptr, w_ptr, a_planes, w_taps, h0, w0, d, H, W, D, k_a, k_w, n,
+    step, x_ptr, w_ptr, a_planes, w_taps, row_starts, column_starts, h0, w0, d, H, W, D, k_a, k_w, n,
     CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr, NUM_STAGES: gl.constexpr, TH: gl.constexpr, TW: gl.constexpr,
 ):
     # Step (cin block, kd): the (TH+2) x (TW+2) H/W halo planes of the input rows shifted by kd, and the 9 (kh, kw)
@@ -60,7 +67,8 @@ def _issue_halo_loads(
         h = h0 + plane // (TW + 2) - 1
         w = w0 + plane % (TW + 2) - 1
         inside = rows_inside & (h >= 0) & (h < H) & (w >= 0) & (w < W)
-        cp.async_copy_global_to_shared(a_planes[plane].index(stage), x_ptr + (h * W + w) * D * CIN + a_cols, mask=inside[:, None])
+        plane_offset = _add_in_loop(row_starts[plane // (TW + 2)], column_starts[plane % (TW + 2)]) * 16
+        cp.async_copy_global_to_shared(a_planes[plane].index(stage), x_ptr + (a_cols + plane_offset), mask=inside[:, None])
     for tap_hw in gl.static_range(9):
         w_rows = (tap_hw * 3 + kd) * CIN + cin_offset + k_w
         cp.async_copy_global_to_shared(w_taps[tap_hw].index(stage), w_ptr + w_rows[:, None] * COUT + n[None, :])
@@ -99,6 +107,14 @@ def _Conv_cl3d_tiled_halo(
     k_a = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(0, a_layout))
     k_w = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(1, w_layout))
     n = gl.arange(0, COUT, layout=gl.SliceLayout(0, w_layout))
+    # Offsets of the halo rows and columns in units of 16 elements, so that the plane offset built from them in the loop
+    # keeps the 16-element alignment cp.async needs.
+    row_starts = ()
+    for i in gl.static_range(TH + 2):
+        row_starts = row_starts + ((h0 + i - 1) * W * D * (CIN // 16),)
+    column_starts = ()
+    for j in gl.static_range(TW + 2):
+        column_starts = column_starts + ((w0 + j - 1) * D * (CIN // 16),)
 
     # One allocation per plane and per tap: the barrier pass treats an allocation as a single buffer and would put a
     # barrier before every copy into it.
@@ -110,12 +126,16 @@ def _Conv_cl3d_tiled_halo(
         w_taps = w_taps + (gl.allocate_shared_memory(gl.float16, [NUM_STAGES, BLOCK_K, COUT], _swizzled_layout(COUT)),)
 
     for step in gl.static_range(NUM_STAGES - 1):
-        _issue_halo_loads(step, x_ptr, w_ptr, a_planes, w_taps, h0, w0, d, H, W, D, k_a, k_w, n, CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW)
+        _issue_halo_loads(
+            step, x_ptr, w_ptr, a_planes, w_taps, row_starts, column_starts, h0, w0, d, H, W, D, k_a, k_w, n,
+            CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW,
+        )
 
     accs = (gl.zeros([TD, COUT], gl.float32, mma_layout),) * POSITIONS
     for step in range(STEPS):
         _issue_halo_loads(
-            step + NUM_STAGES - 1, x_ptr, w_ptr, a_planes, w_taps, h0, w0, d, H, W, D, k_a, k_w, n, CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW
+            step + NUM_STAGES - 1, x_ptr, w_ptr, a_planes, w_taps, row_starts, column_starts, h0, w0, d, H, W, D, k_a, k_w, n,
+            CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW,
         )
         cp.wait_group(NUM_STAGES - 1)
         stage = step % NUM_STAGES
