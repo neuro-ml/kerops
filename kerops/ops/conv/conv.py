@@ -50,7 +50,7 @@ def Conv3d(
     """3x3x3 convolution, padding 1, of channels_last_3d fp16 `x` with `weight` [3, 3, 3, in, out]."""
     bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)
     output = channels_last_output(x, out_channels)
-    grid = (cdiv(W, TW), cdiv(H, TH), cdiv(D, TD) * bsize)
+    grid = (cdiv(W, TW) * cdiv(H, TH) * cdiv(D, TD) * bsize,)
     _Conv_cl3d_tiled_halo[grid](
         x, weight, output, H, W, D, in_channels, out_channels, BLOCK_K, TH, TW, TD, NUM_STAGES, WARPS_M, WARPS_N,
         POSITION_MAJOR, num_warps=WARPS_M * WARPS_N,

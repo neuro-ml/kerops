@@ -93,13 +93,20 @@ def _Conv_cl3d_tiled_halo(
     a_dot_layout: gl.constexpr = gl.DotOperandLayout(operand_index=0, parent=mma_layout, k_width=2)
     b_dot_layout: gl.constexpr = gl.DotOperandLayout(operand_index=1, parent=mma_layout, k_width=2)
 
+    w_tiles = gl.cdiv(W, TW)
+    h_tiles = gl.cdiv(H, TH)
     d_blocks = gl.cdiv(D, TD)
-    sample = gl.program_id(2) // d_blocks
+    # D blocks first: neighbours along D share two halo rows, and running together they find them in L2.
+    program = gl.program_id(0)
+    d_block = program % d_blocks
+    w_tile = program // d_blocks % w_tiles
+    h_tile = program // (d_blocks * w_tiles) % h_tiles
+    sample = program // (w_tiles * h_tiles * d_blocks)
     x_ptr += sample.to(gl.int64) * H * W * D * CIN
     out_ptr += sample.to(gl.int64) * H * W * D * COUT
-    h0 = gl.program_id(1) * TH
-    w0 = gl.program_id(0) * TW
-    d0 = gl.program_id(2) % d_blocks * TD
+    h0 = h_tile * TH
+    w0 = w_tile * TW
+    d0 = d_block * TD
     d = d0 + gl.arange(0, TD, layout=gl.SliceLayout(1, a_layout))
     k_a = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(0, a_layout))
     k_w = gl.arange(0, BLOCK_K, layout=gl.SliceLayout(1, w_layout))
