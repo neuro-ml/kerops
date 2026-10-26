@@ -41,3 +41,23 @@ Time comparison (ms) for NVidia RTX 4090: `kerops.ops.conv.Conv3d` against cuDNN
 | 64 → 128          | 128  |   5.63    |      3.84 (x1.47)      |
 | 128 → 64          | 128  |   5.56    |      3.70 (x1.50)      |
 | 128 → 128         | 128  |   10.93   |      7.79 (x1.40)      |
+
+# How ops are configured
+Every op is a `ConfiguredFunction`: tensors are positional-only arguments, kernel launch parameters are keyword-only.
+
+```text
+scripts/autotune.py ── best params of this GPU ──▶ kerops/ops/assets/<Op>.toml
+                                                         │ read at import
+                                                         ▼
+op(*tensors, **overrides) ──▶ ConfiguredFunction ◀── TableKernelConfig: params for
+                                      │                (GPU of the tensors, args_to_problem_sizes(*tensors))
+                                      ▼
+                       kernel launch with the params, overrides win
+```
+
+- An op without a table takes its launch parameters from their defaults.
+- `op.can_be_configured(*tensors)` tells whether the table has params for this GPU and these sizes.
+- At import, the TOML params must equal the op's keyword-only arguments, and the keys returned by
+  `args_to_problem_sizes` must equal the TOML's `problem_size_names`.
+- A GPU missing from a table raises an error; `python scripts/autotune.py <target>` (e.g. `conv`) on that GPU
+  adds it and keeps the others.

@@ -1,0 +1,19 @@
+name: Tests
+
+on: [ pull_request ]
+
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run the tests that need no GPU against the installed package
+        run: |
+          pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install . pytest
+          pytest tests/test_settings.py

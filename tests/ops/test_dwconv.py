@@ -1,5 +1,6 @@
 import math
 
+import pytest
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -10,7 +11,7 @@ from kerops.utils import allclose_two_stage, weight_grad_similarity
 
 def test_dwconv(bsize, channels, other_1, other_2, other_3):
     if channels < 8:
-        return
+        pytest.skip('tuned only for 8+ channels')
 
     torch.manual_seed(322)
     x = torch.randn(bsize, channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(
@@ -42,7 +43,7 @@ def test_dwconv(bsize, channels, other_1, other_2, other_3):
 def test_dwconv_wgrad(bsize, channels, other_1, other_2, other_3):
     # DWConv from torch is EXTREAMLY slow
     if channels < 8 or bsize > 3 or other_1 > 53 or other_2 > 53 or other_3 > 53:
-        return
+        pytest.skip('tuned only for 8+ channels; the torch reference is too slow past 53')
 
     torch.manual_seed(322)
     x = torch.randn(bsize, channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(

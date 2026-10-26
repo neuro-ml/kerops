@@ -1,5 +1,6 @@
 import math
 
+import pytest
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -16,7 +17,7 @@ CONV_MEAN_ERROR = 4e-4
 # TODO: small shapes causes recompilations for some reasons regardless of configuration
 def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, other_3):
     if not (conv_in_channels == conv_out_channels or conv_in_channels * 2 == conv_out_channels or conv_in_channels == 2 * conv_out_channels):
-        return
+        pytest.skip('tuned only for cin == cout, 2 * cin == cout and cin == 2 * cout')
     
     torch.manual_seed(322)
     x = torch.randn(bsize, conv_in_channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).relu().to(
@@ -40,7 +41,7 @@ def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, othe
 
 def test_conv_dwgrad(bsize, conv_in_channels, conv_out_channels, other_1, other_2, other_3):
     if not (conv_in_channels == conv_out_channels or conv_in_channels * 2 == conv_out_channels or conv_in_channels == 2 * conv_out_channels):
-        return
+        pytest.skip('tuned only for cin == cout, 2 * cin == cout and cin == 2 * cout')
     
     torch.manual_seed(1337)
     x = torch.randn(bsize, conv_in_channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(

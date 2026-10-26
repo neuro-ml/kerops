@@ -1,5 +1,6 @@
 import math
 
+import pytest
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -80,7 +81,7 @@ def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out
 
 def test_linbrelulinadd(bsize, channels, other_1, other_2, other_3):
     if channels not in [16, 32, 64]:
-        return
+        pytest.skip('tuned only for 16, 32 and 64 channels')
 
     torch.manual_seed(322)
 
@@ -120,7 +121,7 @@ def test_linbrelulinadd(bsize, channels, other_1, other_2, other_3):
 
 def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
     if channels not in [16, 32]:
-        return
+        pytest.skip('checked only for 16 and 32 channels')
 
     torch.manual_seed(322)
 
