@@ -1,5 +1,3 @@
-from functools import cache
-
 import torch
 
 from ..assets import ASSETS_ROOT
@@ -30,38 +28,24 @@ def wgrad_shapes(grad, x):
     return bsize, H, W, D, in_channels, out_channels
 
 
-@cache
-def taps_from_sums(winograd, device):
-    """The 3 kd taps of the 4 sums the kernel keeps along D: Gᵀ of Winograd F(3, 2), whose last column carries the
-    sign of the last row of A that the kernel leaves out; or, direct, the first 3 sums themselves."""
-    rows = [[1, 0.5, 0.5, 0], [0, 0.5, -0.5, 0], [0, 0.5, 0.5, -1]] if winograd else [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]
-    return torch.tensor(rows, device=device, dtype=torch.float32)
-
-
 @ConfiguredFunction.configure(conv3d_wgrad_config)
 def Conv3dWgrad(
     grad, x, /, *, P_BLOCK, Q_BLOCK, TH, TW, TD, GH, GW, WINOGRAD, NUM_STAGES, WARPS_M, WARPS_N, SWAP, PROGRAMS, P_VEC,
     Q_VEC,
 ):
-    """Weight gradient [3, 3, 3, in, out] of the 3x3x3 convolution, padding 1, of `x` whose output gradient is `grad`.
-    P is the operand read with an H/W halo: x, or grad when SWAP, which gives the transposed gradient of the mirrored
-    taps. Programs: about PROGRAMS, each for GH x GW (kh, kw) taps, a P_BLOCK x Q_BLOCK block of channels and a share
-    of the TH x TW x TD tiles. WINOGRAD: Winograd F(3, 2) along D, fewer mma for twice the rows of P. P_VEC, Q_VEC:
-    fp16 per cp.async of P and Q; 4 (8 bytes) goes through L1, 8 bypasses it."""
-    bsize, H, W, D, _, _ = wgrad_shapes(grad, x)
+    """Weight gradient [3, 3, 3, in, out] of the 3x3x3 convolution, padding 1, of `x` whose output gradient is `grad`."""
+    bsize, H, W, D, in_channels, out_channels = wgrad_shapes(grad, x)
+    # P is read with an H/W halo; swapping x and grad gives the transposed gradient of the mirrored taps.
     p, q = (grad, x) if SWAP else (x, grad)
-    sums = torch.zeros(3, 3, 4, p.shape[1], q.shape[1], device=x.device, dtype=torch.float32)
+    weight_grad = torch.zeros(3, 3, 3, in_channels, out_channels, device=x.device, dtype=torch.float32)
     n_tiles = bsize * cdiv(H, TH) * cdiv(W, TW) * cdiv(D, TD)
     work = (3 // GH) * (3 // GW) * (p.shape[1] // P_BLOCK) * (q.shape[1] // Q_BLOCK)
     grid = (work * max(1, PROGRAMS // work),)
     _Conv_wgrad_cl3d_halo[grid](
-        p, q, sums, H, W, D, n_tiles, p.shape[1], q.shape[1], P_BLOCK, Q_BLOCK, TH, TW, TD, GH, GW, WINOGRAD,
-        NUM_STAGES, WARPS_M, WARPS_N, P_VEC, Q_VEC, num_warps=WARPS_M * WARPS_N,
+        p, q, weight_grad, H, W, D, n_tiles, p.shape[1], q.shape[1], P_BLOCK, Q_BLOCK, TH, TW, TD, GH, GW, WINOGRAD,
+        NUM_STAGES, WARPS_M, WARPS_N, SWAP, P_VEC, Q_VEC, num_warps=WARPS_M * WARPS_N,
     )
-    weight_grad = torch.einsum('ka,hwapq->hwkpq', taps_from_sums(WINOGRAD, x.device), sums)
-    if SWAP:
-        weight_grad = weight_grad.flip(0, 1, 2).transpose(3, 4)
-    return weight_grad.to(torch.float16, memory_format=torch.contiguous_format)
+    return weight_grad.to(torch.float16)
 
 
 def generate_inputs_conv_wgrad(problem_sizes):
@@ -80,11 +64,7 @@ def cudnn_wgrad(grad, x):
 
 
 def pruning_rule(problem_size, config):
-    """Channel blocks of at least half the channels, mma warps tiling the block, fp32 accumulators of 32 to 128
-    registers a thread, at most 48 KB of shared memory a stage, and 32 to 1024 mma a warp per tile: fewer do not
-    pay for the loads of a tile, more unroll into minutes of compilation. SWAP only where it changes which operand
-    has the halo; 8-byte copies only for blocks of at most 32 channels, direct D only for 16 channels and 512
-    programs only for programs of at most 2 warps, the only ones where they won."""
+    """Configs that fit registers and shared memory, compile in seconds and are of a kind that ever won."""
     in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
     p_channels, q_channels = (out_channels, in_channels) if config['SWAP'] else (in_channels, out_channels)
     p_block, q_block, warps_m, warps_n = config['P_BLOCK'], config['Q_BLOCK'], config['WARPS_M'], config['WARPS_N']
@@ -95,22 +75,24 @@ def pruning_rule(problem_size, config):
     shared = 2 * config['NUM_STAGES'] * rows * (p_sets * p_planes * p_block + q_sets * th * tw * q_block)
     mma = sums * th * tw * rows // 16 * (p_block // (16 * warps_m)) * (q_block // (8 * warps_n))
     return (
-        rows >= 16 and (winograd or max(in_channels, out_channels) <= 16)
-        and (config['PROGRAMS'] == 256 or warps_m * warps_n <= 2)
+        rows >= 16
         and p_channels // 2 <= p_block <= p_channels and q_channels // 2 <= q_block <= q_channels
         and 16 * warps_m <= p_block and 8 * warps_n <= q_block
-        and 32 <= sums * p_block * q_block // (32 * warps_m * warps_n) <= 128
+        and 32 <= sums * p_block * q_block // (32 * warps_m * warps_n) <= 128  # fp32 sums, registers a thread
         and shared <= 48 * 1024 * config['NUM_STAGES']
-        and 32 <= mma <= 1024
+        and 32 <= mma <= 1024  # mma a warp per tile: fewer do not pay for the loads, more unroll into minutes
         and not (config['SWAP'] and in_channels == out_channels)
+        # Won only there:
+        and (winograd or max(in_channels, out_channels) <= 16)
+        and (config['PROGRAMS'] == 256 or warps_m * warps_n <= 2)
         and (config['P_VEC'] == 8 or p_block <= 32) and (config['Q_VEC'] == 8 or q_block <= 32)
     )
 
 
 SEARCH_SPACE = dict(
     P_BLOCK=[16, 32, 64, 128], Q_BLOCK=[16, 32, 64, 128], TH=[1, 2, 4], TW=[2, 4], TD=[16, 32, 64], GH=[1, 3], GW=[1, 3],
-    WINOGRAD=[False, True],
-    NUM_STAGES=[1, 2], WARPS_M=[1, 2], WARPS_N=[1, 2, 4], SWAP=[False, True], PROGRAMS=[256, 512], P_VEC=[4, 8], Q_VEC=[4, 8],
+    WINOGRAD=[False, True], NUM_STAGES=[1, 2], WARPS_M=[1, 2], WARPS_N=[1, 2, 4], SWAP=[False, True],
+    PROGRAMS=[256, 512], P_VEC=[4, 8], Q_VEC=[4, 8],
 )
 
 
