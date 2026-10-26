@@ -2,7 +2,6 @@
 import argparse
 
 from kerops.ops.assets import ASSETS_ROOT
-from kerops.ops.conv.bnrelu_conv import autotune_bnreluconv
 from kerops.ops.conv.conv import autotune_conv
 from kerops.ops.conv.conv_wgrad import autotune_conv_wgrad
 from kerops.ops.conv.dwconv import autotune_dwconv
@@ -14,7 +13,6 @@ from kerops.ops.linear.relu_linear_backward import autotune_relu_lin_backward
 
 TARGETS = {
     'conv': (autotune_conv, 'Conv3d.toml'),
-    'bnreluconv': (autotune_bnreluconv, 'BNReLUConv3d.toml'),
     'conv_wgrad': (autotune_conv_wgrad, 'Conv3dWgrad.toml'),
     'dwconv': (autotune_dwconv, 'DWConv.toml'),
     'dwconv_wgrad': (autotune_dwconv_wgrad, 'DWConvWGRAD.toml'),
