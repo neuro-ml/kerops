@@ -19,6 +19,17 @@ conv3d_wgrad_config = TableKernelConfig(
 )
 
 
+def wgrad_shapes(grad, x):
+    """(batch, H, W, D, in channels, out channels), after checking the layout Conv3dWgrad expects."""
+    check_activation(x)
+    check_activation(grad)
+    assert grad.device == x.device and grad.shape[0] == x.shape[0] and grad.shape[2:] == x.shape[2:]
+    bsize, in_channels, H, W, D = x.shape
+    out_channels = grad.shape[1]
+    assert H * W * D * max(in_channels, out_channels) < 2**31, 'offsets inside one sample are int32'
+    return bsize, H, W, D, in_channels, out_channels
+
+
 @cache
 def taps_from_sums(winograd, device):
     """The 3 kd taps of the 4 sums the kernel keeps along D: Gᵀ of Winograd F(3, 2), whose last column carries the
@@ -37,12 +48,7 @@ def Conv3dWgrad(
     taps. Programs: about PROGRAMS, each for GH x GW (kh, kw) taps, a P_BLOCK x Q_BLOCK block of channels and a share
     of the TH x TW x TD tiles. WINOGRAD: Winograd F(3, 2) along D, fewer mma for twice the rows of P. P_VEC, Q_VEC:
     fp16 per cp.async of P and Q; 4 (8 bytes) goes through L1, 8 bypasses it."""
-    check_activation(x)
-    check_activation(grad)
-    assert grad.device == x.device and grad.shape[0] == x.shape[0] and grad.shape[2:] == x.shape[2:]
-    bsize, in_channels, H, W, D = x.shape
-    assert H * W * D * max(in_channels, grad.shape[1]) < 2**31, 'offsets inside one sample are int32'
-
+    bsize, H, W, D, _, _ = wgrad_shapes(grad, x)
     p, q = (grad, x) if SWAP else (x, grad)
     sums = torch.zeros(3, 3, 4, p.shape[1], q.shape[1], device=x.device, dtype=torch.float32)
     n_tiles = bsize * cdiv(H, TH) * cdiv(W, TW) * cdiv(D, TD)
