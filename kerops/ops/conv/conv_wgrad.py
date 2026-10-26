@@ -5,6 +5,7 @@ from ..assets import ASSETS_ROOT
 from ...kernels.conv_bprop import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitk_impl, _Conv_wgrad_cl3d_splitk_3acc_impl
 from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
+from .conv import generate_inputs_conv
 
 
 conv3d_wgrad_grad_based_config = TableKernelConfig(
@@ -293,39 +294,18 @@ def pruning_rule_splitk(problem_size, named_config):
 
 
 def generate_inputs_conv_wgrad(problem_sizes):
-    in_channels, out_channels = problem_sizes['in_channels'], problem_sizes['out_channels']
-
-    if in_channels <= 32 and out_channels <= 32:
-        base = 128
-    elif in_channels <= 64 and out_channels <= 64:
-        base = 96
-    else:
-        base = 64
-
-    x = torch.randn(1, in_channels, base, base, base, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
-    grad = torch.randn(1, out_channels, base, base, base, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
-
-    return grad, x
+    x, _ = generate_inputs_conv(problem_sizes)
+    grad = torch.randn(1, problem_sizes['out_channels'], *x.shape[2:], device=x.device, dtype=x.dtype)
+    return grad.to(memory_format=torch.channels_last_3d), x
 
 
-def comparator(grad, x):
-    cout = grad.shape[1]
-    cin = x.shape[1]
-    dummy_weight = torch.empty(cout, cin, 3, 3, 3, device='cuda', dtype=torch.float16)
-
-    torch.ops.aten.convolution_backward(
-        grad,
-        x,
-        dummy_weight,
-        [0],  # bias_sizes
-        [1, 1, 1],  # stride
-        [1, 1, 1],  # padding
-        [1, 1, 1],  # dilation
-        False,  # transposed
-        [0, 0, 0],  # output padding
-        1,  # groups
-        [False, True, False],  # output_mask - grad_inpt, grad_weight, grad_bias
+def cudnn_wgrad(grad, x):
+    """Weight gradient by cuDNN in the [3, 3, 3, in, out] layout of Conv3dWgrad."""
+    weight = torch.empty(grad.shape[1], x.shape[1], 3, 3, 3, device=x.device, dtype=x.dtype)
+    _, weight_grad, _ = torch.ops.aten.convolution_backward(
+        grad, x, weight, [0], [1, 1, 1], [1, 1, 1], [1, 1, 1], False, [0, 0, 0], 1, [False, True, False]
     )
+    return weight_grad.permute(2, 3, 4, 1, 0)
 
 
 def autotune_conv_wgrad_grad_based(toml_path, **autotune_kwargs):
@@ -343,7 +323,7 @@ def autotune_conv_wgrad_grad_based(toml_path, **autotune_kwargs):
         problem_sizes,
         pruning_rule,
         toml_path,
-        comparator=comparator,
+        comparator=cudnn_wgrad,
         **autotune_kwargs,
         num_warps=[1, 2, 4],
         D_BLOCK=[16, 32],
@@ -368,7 +348,7 @@ def autotune_conv_wgrad_splitk(toml_path, **autotune_kwargs):
         problem_sizes,
         pruning_rule_splitk,
         toml_path,
-        comparator=comparator,
+        comparator=cudnn_wgrad,
         **autotune_kwargs,
         num_warps=[1, 2, 4],
         H_BLOCK=[2, 4, 8, 16],
@@ -394,7 +374,7 @@ def autotune_conv_wgrad_splitk_3acc(toml_path, **autotune_kwargs):
         problem_sizes,
         pruning_rule_splitk,
         toml_path,
-        comparator=comparator,
+        comparator=cudnn_wgrad,
         **autotune_kwargs,
         num_warps=[1, 2, 4],
         H_BLOCK=[2, 4, 8, 16],
@@ -420,7 +400,7 @@ def autotune_conv_wgrad(toml_path, **autotune_kwargs):
         problem_sizes,
         pruning_rule=None,
         toml_path=toml_path,
-        comparator=comparator,
+        comparator=cudnn_wgrad,
         rep_ms=200,
         **autotune_kwargs,
         IMPL_ID=[0, 1, 2],
