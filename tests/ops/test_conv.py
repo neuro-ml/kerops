@@ -6,7 +6,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from kerops.ops.conv import Conv3d, Conv3dWgrad
-from kerops.ops.conv.conv_wgrad import cudnn_wgrad
+from kerops.ops.conv.conv import channel_pairs
+from kerops.ops.conv.conv_wgrad import cudnn_wgrad, generate_inputs_conv_wgrad
 from kerops.utils import wgrad_errors
 
 
@@ -44,6 +45,13 @@ def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, othe
     torch.cuda.empty_cache()
 
 
+def assert_wgrad_within_budget(grad, x):
+    with torch.backends.cudnn.flags(enabled=True, allow_tf32=False):
+        reference = cudnn_wgrad(grad.float(), x.float())
+    cos_error, norm_error = wgrad_errors(Conv3dWgrad(grad, x), reference)
+    assert cos_error <= WGRAD_COS_ERROR and norm_error <= WGRAD_NORM_ERROR, f'cos {cos_error:.1e}, norm {norm_error:.1e}'
+
+
 def test_conv_wgrad(bsize, conv_in_channels, conv_out_channels, other_1, other_2, other_3):
     if not (conv_in_channels == conv_out_channels or conv_in_channels * 2 == conv_out_channels or conv_in_channels == 2 * conv_out_channels):
         pytest.skip('tuned only for cin == cout, 2 * cin == cout and cin == 2 * cout')
@@ -55,10 +63,14 @@ def test_conv_wgrad(bsize, conv_in_channels, conv_out_channels, other_1, other_2
     grad = torch.randn(bsize, conv_out_channels, other_1, other_2, other_3, device='cuda', dtype=torch.float16).to(
         memory_format=torch.channels_last_3d
     )
+    assert_wgrad_within_budget(grad, x)
+    torch.cuda.empty_cache()
 
-    with torch.backends.cudnn.flags(enabled=True, allow_tf32=False):
-        reference = cudnn_wgrad(grad.float(), x.float())
-    cos_error, norm_error = wgrad_errors(Conv3dWgrad(grad, x), reference)
-    assert cos_error <= WGRAD_COS_ERROR and norm_error <= WGRAD_NORM_ERROR, f'cos {cos_error:.1e}, norm {norm_error:.1e}'
 
+# The bench sizes, 128³ to 256³ voxels: the error of long accumulation chains shows only there.
+@pytest.mark.parametrize('pair', channel_pairs(), ids=lambda pair: f'{pair["in_channels"]}-{pair["out_channels"]}')
+def test_conv_wgrad_bench_sizes(pair):
+    torch.manual_seed(1337)
+    grad, x = generate_inputs_conv_wgrad(pair)
+    assert_wgrad_within_budget(grad, x.relu())
     torch.cuda.empty_cache()
