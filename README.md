@@ -31,18 +31,18 @@ Time comparison (ms) for NVidia RTX 4090: `kerops.ops.conv.Conv3d` against cuDNN
 
 | channels in → out | size |   cuDNN   | kerops.ops.conv.Conv3d |
 |:-----------------:|:----:|:---------:|:----------------------:|
-| 16 → 16           | 256  |   2.12    |      1.27 (x1.67)      |
-| 16 → 32           | 256  |   3.44    |      2.16 (x1.59)      |
-| 32 → 16           | 256  |   4.42    |      2.70 (x1.64)      |
-| 32 → 32           | 256  |   6.75    |      4.15 (x1.63)      |
-| 32 → 64           | 192  |   5.13    |      3.19 (x1.61)      |
-| 64 → 32           | 192  |   5.56    |      3.34 (x1.66)      |
-| 64 → 64           | 192  |   9.68    |      6.34 (x1.53)      |
-| 64 → 128          | 128  |   5.63    |      3.84 (x1.47)      |
-| 128 → 64          | 128  |   5.56    |      3.70 (x1.50)      |
-| 128 → 128         | 128  |   10.93   |      7.79 (x1.40)      |
+| 16 → 16           | 256  |   5.52    |        1.28 (x4.31)         |
+| 16 → 32           | 256  |   5.67    |        2.03 (x2.79)         |
+| 32 → 16           | 256  |   8.46    |        1.94 (x4.35)         |
+| 32 → 32           | 256  |   10.43   |        3.39 (x3.08)         |
+| 32 → 64           | 192  |   6.49    |        2.79 (x2.33)         |
+| 64 → 32           | 192  |   8.91    |        2.78 (x3.21)         |
+| 64 → 64           | 192  |   13.42   |        5.48 (x2.45)         |
+| 64 → 128          | 128  |   6.11    |        3.20 (x1.91)         |
+| 128 → 64          | 128  |   7.87    |        3.18 (x2.47)         |
+| 128 → 128         | 128  |   13.69   |        6.86 (x2.00)         |
 
-The same for the weight gradient: `kerops.ops.conv.Conv3dWgrad` against cuDNN (`torch.ops.aten.convolution_backward`), output gradient of out_channels, float16, <b>channels_last_3d</b>. Winograd F(3, 2) along the last axis does 4 products per pair of voxels instead of 6; partial sums are accumulated in float16 and flushed into float32. Against a float32 reference, 1 - cosine similarity is below 5e-7 and the norm differs by less than 1e-4.
+The same for the weight gradient: `kerops.ops.conv.Conv3dWgrad` against cuDNN (`torch.ops.aten.convolution_backward`), output gradient of out_channels, float16, <b>channels_last_3d</b>. Winograd F(3, 2) along the last axis does 4 products per pair of voxels instead of 6 (16 → 16 moves fewer bytes without it); partial sums are accumulated in float16 and flushed into float32. Against a float32 reference, 1 - cosine similarity is below 5e-7 and the norm differs by less than 1e-4.
 
 | channels in → out | size |   cuDNN   | kerops.ops.conv.Conv3dWgrad |
 |:-----------------:|:----:|:---------:|:---------------------------:|
