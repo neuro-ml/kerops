@@ -25,7 +25,7 @@ Compilation = tuple[str, str, str]
 
 # The fastest configs of the first pass are timed again, longer and in interleaved rounds: one pass times configs one
 # after another while the GPU warms up, which reorders configs that are within a few percent of each other.
-FINALISTS = 8
+FINALISTS = 16
 FINAL_REP_MS = 300
 FINAL_ROUNDS = 3
 

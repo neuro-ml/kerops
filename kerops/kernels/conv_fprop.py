@@ -13,10 +13,10 @@ def _rows_layout(row, num_warps, vec):
 
 
 @gluon.constexpr_function
-def _swizzled_layout(row):
-    """The swizzle triton picks for mma_v2 operands with `row` fp16 columns."""
+def _swizzled_layout(row, rank=2):
+    """The swizzle triton picks for mma_v2 operands with `row` fp16 columns, for buffers of `rank` + 1 dimensions."""
     per_phase = max(1, 128 // (2 * row))
-    return gl.SwizzledSharedLayout(vec=8, per_phase=per_phase, max_phase=8 // per_phase, order=[1, 0])
+    return gl.SwizzledSharedLayout(vec=8, per_phase=per_phase, max_phase=8 // per_phase, order=list(range(rank - 1, -1, -1)))
 
 
 @gluon.constexpr_function

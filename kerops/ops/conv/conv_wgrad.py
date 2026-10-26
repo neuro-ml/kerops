@@ -72,9 +72,9 @@ def cudnn_wgrad(grad, x):
 
 def pruning_rule(problem_size, config):
     """Channel blocks of at least half the channels, mma warps tiling the block, fp32 accumulators of 32 to 128
-    registers a thread, at most 48 KB of shared memory a stage, and 96 to 1024 mma a warp per tile: fewer do not
+    registers a thread, at most 48 KB of shared memory a stage, and 32 to 1024 mma a warp per tile: fewer do not
     pay for the loads of a tile, more unroll into minutes of compilation. SWAP only where it changes which operand
-    has the halo."""
+    has the halo, 8-byte copies only for blocks of at most 32 channels, the only ones where they won."""
     in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
     p_channels, q_channels = (out_channels, in_channels) if config['SWAP'] else (in_channels, out_channels)
     p_block, q_block, warps_m, warps_n = config['P_BLOCK'], config['Q_BLOCK'], config['WARPS_M'], config['WARPS_N']
@@ -88,8 +88,9 @@ def pruning_rule(problem_size, config):
         and 16 * warps_m <= p_block and 8 * warps_n <= q_block
         and 32 <= sums * p_block * q_block // (32 * warps_m * warps_n) <= 128
         and shared <= 48 * 1024 * config['NUM_STAGES']
-        and 96 <= mma <= 1024
+        and 32 <= mma <= 1024
         and not (config['SWAP'] and in_channels == out_channels)
+        and (config['P_VEC'] == 8 or p_block <= 32) and (config['Q_VEC'] == 8 or q_block <= 32)
     )
 
 

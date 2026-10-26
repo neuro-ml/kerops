@@ -17,7 +17,7 @@ problem_size_names = ['in_channels', 'out_channels']
   SWAP = false
   PROGRAMS = 256
   P_VEC = 4
-  Q_VEC = 8
+  Q_VEC = 4
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [16, 32]
@@ -84,7 +84,7 @@ problem_size_names = ['in_channels', 'out_channels']
   WARPS_N = 4
   SWAP = false
   PROGRAMS = 256
-  P_VEC = 4
+  P_VEC = 8
   Q_VEC = 8
 
   [["NVIDIA GeForce RTX 4090".configs]]
@@ -161,12 +161,12 @@ problem_size_names = ['in_channels', 'out_channels']
   Q_BLOCK = 64
   TH = 1
   TW = 2
-  TD = 64
+  TD = 32
   GH = 1
   GW = 1
   NUM_STAGES = 2
-  WARPS_M = 1
-  WARPS_N = 4
+  WARPS_M = 2
+  WARPS_N = 2
   SWAP = false
   PROGRAMS = 256
   P_VEC = 8
