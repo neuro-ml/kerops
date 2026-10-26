@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from triton import language as tl, next_power_of_2
 
@@ -46,8 +45,9 @@ def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, /, *, num_warps, D_BLO
     ACCTYPE = tl.float32
     output = torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype, layout=x.layout).permute(0, -1, 1, 2, 3)
     grid = (cdiv(W, 2), cdiv(H, 2), cdiv(D, D_BLOCK))
-    mean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
-    sqmean = torch.zeros([bsize, np.prod(grid), out_channels], device=x.device, dtype=torch.float32)
+    grid_vol = grid[0] * grid[1] * grid[2]
+    mean = torch.zeros([bsize, grid_vol, out_channels], device=x.device, dtype=torch.float32)
+    sqmean = torch.zeros([bsize, grid_vol, out_channels], device=x.device, dtype=torch.float32)
 
     numel_no_channels = bsize * H * W * D
 
