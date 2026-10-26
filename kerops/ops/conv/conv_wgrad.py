@@ -3,14 +3,12 @@ from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
 from ...kernels.conv_bprop import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitk_impl, _Conv_wgrad_cl3d_splitk_3acc_impl
-from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
+from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
 conv3d_wgrad_grad_based_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['num_warps', 'D_BLOCK', 'REDUCTION_FACTOR', 'CIN_BLOCK', 'COUT_BLOCK'],
-    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
     toml_path=ASSETS_ROOT / 'Conv3dWgrad_grad_based.toml'
 )
 
@@ -19,12 +17,13 @@ conv3d_wgrad_grad_based_config = TableKernelConfig(
 def Conv3dWgrad_grad_based(
     grad,
     x,
+    /,
     *,
-    num_warps: ConfArg,
-    D_BLOCK: ConfArg,
-    REDUCTION_FACTOR: ConfArg,
-    CIN_BLOCK: ConfArg,
-    COUT_BLOCK: ConfArg,
+    num_warps,
+    D_BLOCK,
+    REDUCTION_FACTOR,
+    CIN_BLOCK,
+    COUT_BLOCK,
 ):
     assert x.device == grad.device
     assert x.is_cuda
@@ -76,9 +75,7 @@ def Conv3dWgrad_grad_based(
 
 
 conv3d_wgrad_splitk_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['num_warps', 'H_BLOCK', 'WD_BLOCK', 'CIN_BLOCK', 'COUT_BLOCK', 'SPLIT_K'],
-    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
     toml_path=ASSETS_ROOT / 'Conv3dWgrad_splitk.toml'
 )
 
@@ -87,13 +84,14 @@ conv3d_wgrad_splitk_config = TableKernelConfig(
 def Conv3dWgrad_splitk(
     grad,
     x,
+    /,
     *,
-    num_warps: ConfArg,
-    H_BLOCK: ConfArg,
-    WD_BLOCK: ConfArg,
-    CIN_BLOCK: ConfArg, 
-    COUT_BLOCK: ConfArg,
-    SPLIT_K: ConfArg,
+    num_warps,
+    H_BLOCK,
+    WD_BLOCK,
+    CIN_BLOCK, 
+    COUT_BLOCK,
+    SPLIT_K,
 ):
     assert x.device == grad.device
     assert x.is_cuda
@@ -148,9 +146,7 @@ def Conv3dWgrad_splitk(
 
 
 conv3d_wgrad_splitk_3acc_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['num_warps', 'H_BLOCK', 'WD_BLOCK', 'CIN_BLOCK', 'COUT_BLOCK', 'SPLIT_K'],
-    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
     toml_path=ASSETS_ROOT / 'Conv3dWgrad_splitk_3acc.toml'
 )
 
@@ -159,13 +155,14 @@ conv3d_wgrad_splitk_3acc_config = TableKernelConfig(
 def Conv3dWgrad_splitk_3acc(
     grad,
     x,
+    /,
     *,
-    num_warps: ConfArg,
-    H_BLOCK: ConfArg,
-    WD_BLOCK: ConfArg,
-    CIN_BLOCK: ConfArg, 
-    COUT_BLOCK: ConfArg,
-    SPLIT_K: ConfArg,
+    num_warps,
+    H_BLOCK,
+    WD_BLOCK,
+    CIN_BLOCK, 
+    COUT_BLOCK,
+    SPLIT_K,
 ):
     assert x.device == grad.device
     assert x.is_cuda
@@ -220,9 +217,7 @@ def Conv3dWgrad_splitk_3acc(
 
 
 conv3d_wgrad_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['IMPL_ID', 'SWAP_GRAD_X'],
-    args_to_problem_sizes=lambda grad, x: (x.shape[1], grad.shape[1]),
+    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
     toml_path=ASSETS_ROOT / 'Conv3dWgrad.toml'
 )
 
@@ -231,9 +226,10 @@ conv3d_wgrad_config = TableKernelConfig(
 def Conv3dWgrad(
     grad,
     x,
+    /,
     *,
-    IMPL_ID: ConfArg,
-    SWAP_GRAD_X: ConfArg,
+    IMPL_ID,
+    SWAP_GRAD_X,
 ):
     if SWAP_GRAD_X:
         grad, x = x, grad

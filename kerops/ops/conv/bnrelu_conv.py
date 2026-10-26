@@ -4,21 +4,22 @@ from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
 from ...kernels.conv_fused import _ApplyBNReLUConvStats_cl3d_impl
-from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
+from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 from .conv import generate_inputs_conv
 
 
 bnreluconv3d_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['D_BLOCK', 'num_warps', 'CIN_BLOCK'],
-    args_to_problem_sizes=lambda weight: tuple(weight.shape[-2:]),
+    args_to_problem_sizes=lambda x, bn_weight, bn_bias, weight: {
+        'in_channels': weight.shape[-2],
+        'out_channels': weight.shape[-1],
+    },
     toml_path=ASSETS_ROOT / 'BNReLUConv3d.toml'
 )
 
 
 @ConfiguredFunction.configure(bnreluconv3d_config)
-def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg, CIN_BLOCK: ConfArg):
+def ApplyBNReLUConv3dStats(x, bn_weight, bn_bias, weight, /, *, num_warps, D_BLOCK, CIN_BLOCK):
     assert x.device == weight.device == bn_weight.device == bn_bias.device
     assert x.is_cuda
 

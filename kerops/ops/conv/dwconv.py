@@ -3,20 +3,18 @@ from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
 from ...kernels.dw_conv import _DWConv_cl3d_impl
-from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
+from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
 dwconv_config = TableKernelConfig(
-    problem_size_names=['channels'],
-    confarg_names=['num_warps', 'D_BLOCK'],
-    args_to_problem_sizes=lambda weight: (weight.shape[-1], ),
+    args_to_problem_sizes=lambda x, weight: {'channels': weight.shape[-1]},
     toml_path=ASSETS_ROOT / 'DWConv.toml'
 )
 
 
 @ConfiguredFunction.configure(dwconv_config)
-def DWConv(x, weight, *, num_warps: ConfArg, D_BLOCK: ConfArg):
+def DWConv(x, weight, /, *, num_warps, D_BLOCK):
     channels = x.shape[1]
 
     assert x.ndim == 5

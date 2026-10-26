@@ -3,18 +3,12 @@ from math import floor, log2
 import torch
 
 from ..kernels.quantization import _DequantUint8Window_impl, _QuantUint8Window_impl
-from ..settings import ConfArg, StaticKernelConfig, ConfiguredFunction
+from ..settings import ConfiguredFunction
 from ..utils import cdiv
 
 
-quant_config = StaticKernelConfig(
-    l1_cache_bytes=65536,
-    num_warps=4
-)
-
-
-@ConfiguredFunction.configure(quant_config)
-def QuantUint8Window(x, window, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
+@ConfiguredFunction.configure()
+def QuantUint8Window(x, window, /, *, l1_cache_bytes=65536, num_warps=4):
     numel = x.numel()
     MAX_SIZE = l1_cache_bytes // (2 * x.element_size())
     BLOCK_SIZE = min(MAX_SIZE, numel)
@@ -27,8 +21,8 @@ def QuantUint8Window(x, window, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
     return output
 
 
-@ConfiguredFunction.configure(quant_config)
-def DequantUint8Window(x, init_dtype, window, l1_cache_bytes: ConfArg, num_warps: ConfArg):
+@ConfiguredFunction.configure()
+def DequantUint8Window(x, init_dtype, window, /, *, l1_cache_bytes=65536, num_warps=4):
     numel = x.numel()
     output = torch.empty_like(x, dtype=init_dtype)
 

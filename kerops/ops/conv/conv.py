@@ -6,7 +6,7 @@ from triton import next_power_of_2
 
 from ..assets import ASSETS_ROOT
 from ...kernels.conv_fprop import _Conv_cl3d_tiled_halo
-from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
+from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
@@ -29,13 +29,11 @@ def channels_last_output(x, out_channels):
     return torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype).permute(0, 4, 1, 2, 3)
 
 
-def _problem_sizes(weight):
-    return tuple(weight.shape[-2:])
+def _problem_sizes(x, weight):
+    return {'in_channels': weight.shape[-2], 'out_channels': weight.shape[-1]}
 
 
 conv3d_config = TableKernelConfig(
-    problem_size_names=['in_channels', 'out_channels'],
-    confarg_names=['BLOCK_K', 'TH', 'TW', 'TD', 'NUM_STAGES', 'WARPS_M', 'WARPS_N', 'POSITION_MAJOR', 'HALO_VEC', 'WEIGHT_VEC'],
     args_to_problem_sizes=_problem_sizes,
     toml_path=ASSETS_ROOT / 'Conv3d.toml'
 )
@@ -43,9 +41,7 @@ conv3d_config = TableKernelConfig(
 
 @ConfiguredFunction.configure(conv3d_config)
 def Conv3d(
-    x, weight, *,
-    BLOCK_K: ConfArg, TH: ConfArg, TW: ConfArg, TD: ConfArg, NUM_STAGES: ConfArg, WARPS_M: ConfArg, WARPS_N: ConfArg,
-    POSITION_MAJOR: ConfArg, HALO_VEC: ConfArg, WEIGHT_VEC: ConfArg,
+    x, weight, /, *, BLOCK_K, TH, TW, TD, NUM_STAGES, WARPS_M, WARPS_N, POSITION_MAJOR, HALO_VEC, WEIGHT_VEC,
 ):
     """3x3x3 convolution, padding 1, of channels_last_3d fp16 `x` with `weight` [3, 3, 3, in, out]."""
     bsize, H, W, D, in_channels, out_channels = conv_shapes(x, weight)

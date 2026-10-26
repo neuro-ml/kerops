@@ -5,18 +5,12 @@ import torch
 from triton import next_power_of_2
 
 from ..kernels.bnrelu import _ApplyBNReLU_cl3d_backward_impl, _ApplyBNReLU_cl3d_impl
-from ..settings import ConfArg, StaticKernelConfig, ConfiguredFunction
+from ..settings import ConfiguredFunction
 from ..utils import cdiv
 
 
-bnrelu_config = StaticKernelConfig(
-    l1_cache_bytes=65536,
-    num_warps=8
-)
-
-
-@ConfiguredFunction.configure(bnrelu_config)
-def ApplyBNReLU(x, weight, bias, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
+@ConfiguredFunction.configure()
+def ApplyBNReLU(x, weight, bias, /, *, l1_cache_bytes=65536, num_warps=8):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.ndim == 5
@@ -48,8 +42,8 @@ def ApplyBNReLU(x, weight, bias, *, l1_cache_bytes: ConfArg, num_warps: ConfArg)
     return output
 
 
-@ConfiguredFunction.configure(bnrelu_config)
-def ApplyBNReLUBackward(x, weight, bias, grad, *, l1_cache_bytes: ConfArg, num_warps: ConfArg):
+@ConfiguredFunction.configure()
+def ApplyBNReLUBackward(x, weight, bias, grad, /, *, l1_cache_bytes=65536, num_warps=8):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.ndim == 5

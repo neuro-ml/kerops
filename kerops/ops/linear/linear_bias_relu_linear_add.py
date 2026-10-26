@@ -3,14 +3,12 @@ from triton import next_power_of_2
 
 from ..assets import ASSETS_ROOT
 from ...kernels.linear import _LinBReLULinAdd
-from ...settings import autotune, ConfArg, TableKernelConfig, ConfiguredFunction
+from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
 lin_bn_relu_lin_add_config = TableKernelConfig(
-    problem_size_names=['in_channels'],
-    confarg_names=['num_warps', 'D_BLOCK', 'ILP'],
-    args_to_problem_sizes=lambda x: (x.shape[1], ),
+    args_to_problem_sizes=lambda x, weight_up, weight_down, bias, add_other: {'in_channels': x.shape[1]},
     toml_path=ASSETS_ROOT / 'LinBReLULinAdd.toml'
 )
 
@@ -22,10 +20,11 @@ def LinBReLULinAdd(
     weight_down,
     bias,
     add_other,
+    /,
     *,
-    num_warps: ConfArg,
-    D_BLOCK: ConfArg,
-    ILP: ConfArg,
+    num_warps,
+    D_BLOCK,
+    ILP,
 ):
     in_channels = x.shape[1]
     hidden_channels = 2 * in_channels
