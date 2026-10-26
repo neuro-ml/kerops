@@ -10,16 +10,22 @@ from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
 
 
+def check_activation(x):
+    """Asserts the activation layout the kernels expect: channels_last_3d fp16 on CUDA, power-of-2 channels."""
+    assert x.is_cuda and x.ndim == 5 and x.dtype == torch.float16
+    assert x.is_contiguous(memory_format=torch.channels_last_3d)
+    assert x.shape[1] == next_power_of_2(x.shape[1])
+
+
 def conv_shapes(x, weight):
     """(batch, H, W, D, in channels, out channels), after checking the layout Conv3d expects."""
-    assert x.is_cuda and x.device == weight.device
-    assert x.ndim == 5 and weight.ndim == 5
+    check_activation(x)
+    assert x.device == weight.device and weight.ndim == 5
     bsize, in_channels, H, W, D = x.shape
     out_channels = weight.shape[-1]
     assert list(weight.shape) == [3, 3, 3, in_channels, out_channels]
-    assert in_channels == next_power_of_2(in_channels) and out_channels == next_power_of_2(out_channels)
-    assert x.is_contiguous(memory_format=torch.channels_last_3d) and weight.is_contiguous()
-    assert x.dtype == weight.dtype == torch.float16
+    assert out_channels == next_power_of_2(out_channels)
+    assert weight.is_contiguous() and weight.dtype == torch.float16
     assert H * W * D * max(in_channels, out_channels) < 2**31, 'offsets inside one sample are int32'
     return bsize, H, W, D, in_channels, out_channels
 

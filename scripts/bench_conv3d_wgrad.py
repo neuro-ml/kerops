@@ -5,22 +5,12 @@ import torch
 
 from bench_conv3d import bench_with_clock
 from kerops.ops.conv.conv import channel_pairs
-from kerops.ops.conv.conv_wgrad import (
-    Conv3dWgrad,
-    Conv3dWgrad_grad_based,
-    Conv3dWgrad_splitk,
-    Conv3dWgrad_splitk_3acc,
-    cudnn_wgrad,
-    generate_inputs_conv_wgrad,
-)
+from kerops.ops.conv.conv_wgrad import Conv3dWgrad, cudnn_wgrad, generate_inputs_conv_wgrad
 from kerops.utils import wgrad_errors
 
 IMPLEMENTATIONS = {
     'cudnn': cudnn_wgrad,
     'kerops': Conv3dWgrad,
-    'grad_based': Conv3dWgrad_grad_based,
-    'splitk': Conv3dWgrad_splitk,
-    'splitk_3acc': Conv3dWgrad_splitk_3acc,
 }
 
 

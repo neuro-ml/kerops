@@ -4,12 +4,7 @@ import argparse
 from kerops.ops.assets import ASSETS_ROOT
 from kerops.ops.conv.bnrelu_conv import autotune_bnreluconv
 from kerops.ops.conv.conv import autotune_conv
-from kerops.ops.conv.conv_wgrad import (
-    autotune_conv_wgrad,
-    autotune_conv_wgrad_grad_based,
-    autotune_conv_wgrad_splitk,
-    autotune_conv_wgrad_splitk_3acc,
-)
+from kerops.ops.conv.conv_wgrad import autotune_conv_wgrad
 from kerops.ops.conv.dwconv import autotune_dwconv
 from kerops.ops.conv.dwconv_wgrad import autotune_dwconv_wgrad
 from kerops.ops.linear.linear_bias_relu_linear_add import autotune_lin_bn_relu_lin_add
@@ -21,9 +16,6 @@ TARGETS = {
     'conv': (autotune_conv, 'Conv3d.toml'),
     'bnreluconv': (autotune_bnreluconv, 'BNReLUConv3d.toml'),
     'conv_wgrad': (autotune_conv_wgrad, 'Conv3dWgrad.toml'),
-    'conv_wgrad_grad_based': (autotune_conv_wgrad_grad_based, 'Conv3dWgrad_grad_based.toml'),
-    'conv_wgrad_splitk': (autotune_conv_wgrad_splitk, 'Conv3dWgrad_splitk.toml'),
-    'conv_wgrad_splitk_3acc': (autotune_conv_wgrad_splitk_3acc, 'Conv3dWgrad_splitk_3acc.toml'),
     'dwconv': (autotune_dwconv, 'DWConv.toml'),
     'dwconv_wgrad': (autotune_dwconv_wgrad, 'DWConvWGRAD.toml'),
     'lin_bn_relu_lin_add': (autotune_lin_bn_relu_lin_add, 'LinBReLULinAdd.toml'),

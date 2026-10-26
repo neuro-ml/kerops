@@ -1,104 +1,163 @@
 [meta]
 problem_size_names = ['in_channels', 'out_channels']
 
-["NVIDIA GeForce RTX 5070"]
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [16, 16]
-  IMPL_ID = 0
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [16, 32]
-  IMPL_ID = 0
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [32, 16]
-  IMPL_ID = 0
-  SWAP_GRAD_X = true
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [32, 32]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [32, 64]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [64, 32]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [64, 64]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [64, 128]
-  IMPL_ID = 1
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [128, 64]
-  IMPL_ID = 1
-  SWAP_GRAD_X = false
-
-  [["NVIDIA GeForce RTX 5070".configs]]
-  problem_sizes = [128, 128]
-  IMPL_ID = 1
-  SWAP_GRAD_X = false
-
 ["NVIDIA GeForce RTX 4090"]
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [16, 16]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
+  P_BLOCK = 16
+  Q_BLOCK = 16
+  TH = 4
+  TW = 4
+  TD = 16
+  GH = 3
+  GW = 3
+  GD = 3
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [16, 32]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
+  P_BLOCK = 32
+  Q_BLOCK = 16
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 3
+  GW = 3
+  GD = 3
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = true
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [32, 16]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
+  P_BLOCK = 32
+  Q_BLOCK = 16
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 3
+  GW = 3
+  GD = 3
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [32, 32]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
+  P_BLOCK = 32
+  Q_BLOCK = 16
+  TH = 4
+  TW = 2
+  TD = 16
+  GH = 3
+  GW = 3
+  GD = 3
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [32, 64]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
+  P_BLOCK = 32
+  Q_BLOCK = 32
+  TH = 4
+  TW = 2
+  TD = 16
+  GH = 3
+  GW = 3
+  GD = 3
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = true
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [64, 32]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
+  P_BLOCK = 32
+  Q_BLOCK = 32
+  TH = 4
+  TW = 2
+  TD = 16
+  GH = 3
+  GW = 3
+  GD = 3
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = true
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [64, 64]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
+  P_BLOCK = 64
+  Q_BLOCK = 64
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  GD = 1
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = false
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [64, 128]
-  IMPL_ID = 2
-  SWAP_GRAD_X = false
+  P_BLOCK = 64
+  Q_BLOCK = 64
+  TH = 4
+  TW = 2
+  TD = 16
+  GH = 1
+  GW = 3
+  GD = 1
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [128, 64]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
+  P_BLOCK = 64
+  Q_BLOCK = 64
+  TH = 4
+  TW = 2
+  TD = 16
+  GH = 1
+  GW = 3
+  GD = 1
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = true
+  PROGRAMS = 256
 
   [["NVIDIA GeForce RTX 4090".configs]]
   problem_sizes = [128, 128]
-  IMPL_ID = 2
-  SWAP_GRAD_X = true
+  P_BLOCK = 128
+  Q_BLOCK = 128
+  TH = 1
+  TW = 2
+  TD = 32
+  GH = 1
+  GW = 1
+  GD = 1
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256

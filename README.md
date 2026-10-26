@@ -42,6 +42,21 @@ Time comparison (ms) for NVidia RTX 4090: `kerops.ops.conv.Conv3d` against cuDNN
 | 128 → 64          | 128  |   5.56    |      3.70 (x1.50)      |
 | 128 → 128         | 128  |   10.93   |      7.79 (x1.40)      |
 
+The same for the weight gradient: `kerops.ops.conv.Conv3dWgrad` against cuDNN (`torch.ops.aten.convolution_backward`), output gradient of out_channels, float16, <b>channels_last_3d</b>. Partial sums are accumulated in float16 and flushed into float32; against a float32 reference, 1 - cosine similarity is below 5e-7 and the norm differs by less than 4e-5.
+
+| channels in → out | size |   cuDNN   | kerops.ops.conv.Conv3dWgrad |
+|:-----------------:|:----:|:---------:|:---------------------------:|
+| 16 → 16           | 256  |   5.52    |         1.21 (x4.58)        |
+| 16 → 32           | 256  |   5.67    |         2.08 (x2.72)        |
+| 32 → 16           | 256  |   8.48    |         2.04 (x4.16)        |
+| 32 → 32           | 256  |   10.44   |         4.21 (x2.48)        |
+| 32 → 64           | 192  |   6.56    |         3.57 (x1.84)        |
+| 64 → 32           | 192  |   8.95    |         3.56 (x2.52)        |
+| 64 → 64           | 192  |   13.36   |         6.68 (x2.00)        |
+| 64 → 128          | 128  |   6.12    |         3.78 (x1.62)        |
+| 128 → 64          | 128  |   7.86    |         3.80 (x2.07)        |
+| 128 → 128         | 128  |   13.69   |         7.80 (x1.76)        |
+
 # How ops are configured
 Every op is a `ConfiguredFunction`: tensors are positional-only arguments, kernel launch parameters are keyword-only.
 

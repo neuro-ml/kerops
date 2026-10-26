@@ -1,296 +1,45 @@
 import torch
-from triton import language as tl, next_power_of_2
 
 from ..assets import ASSETS_ROOT
-from ...kernels.conv_bprop import _Conv_wgrad_cl3d_impl_V2, _Conv_wgrad_cl3d_splitk_impl, _Conv_wgrad_cl3d_splitk_3acc_impl
+from ...kernels.conv_wgrad import _Conv_wgrad_cl3d_halo
 from ...settings import autotune, TableKernelConfig, ConfiguredFunction
 from ...utils import cdiv
-from .conv import generate_inputs_conv
+from .conv import channel_pairs, check_activation, generate_inputs_conv
 
 
-conv3d_wgrad_grad_based_config = TableKernelConfig(
-    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
-    toml_path=ASSETS_ROOT / 'Conv3dWgrad_grad_based.toml'
-)
-
-
-@ConfiguredFunction.configure(conv3d_wgrad_grad_based_config)
-def Conv3dWgrad_grad_based(
-    grad,
-    x,
-    /,
-    *,
-    num_warps,
-    D_BLOCK,
-    REDUCTION_FACTOR,
-    CIN_BLOCK,
-    COUT_BLOCK,
-):
-    assert x.device == grad.device
-    assert x.is_cuda
-
-    assert x.ndim == grad.ndim == 5
-    xbsize, in_channels, xH, xW, xD = x.shape
-    gbsize, out_channels, gH, gW, gD = grad.shape
-    assert in_channels == next_power_of_2(in_channels)
-    assert out_channels == next_power_of_2(out_channels)
-    assert [xbsize, xH, xW, xD] == [gbsize, gH, gW, gD]
-
-    assert x.is_contiguous(memory_format=torch.channels_last_3d)
-    assert grad.is_contiguous(memory_format=torch.channels_last_3d)
-
-    assert x.dtype == grad.dtype == torch.float16
-
-    assert D_BLOCK == next_power_of_2(D_BLOCK)
-    assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
-    assert CIN_BLOCK <= in_channels
-    assert COUT_BLOCK == next_power_of_2(COUT_BLOCK)
-    assert COUT_BLOCK <= out_channels
-    assert isinstance(REDUCTION_FACTOR, int)
-
-    ACCTYPE = tl.float32
-    num_buffers = cdiv(xW, REDUCTION_FACTOR * 2) * cdiv(xH, REDUCTION_FACTOR * 2) * cdiv(xD, D_BLOCK * REDUCTION_FACTOR) * xbsize
-    weight_grad = torch.zeros([num_buffers, 3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
-    grid = (cdiv(xW, 2) * cdiv(out_channels, COUT_BLOCK), cdiv(xH, 2), cdiv(xD, D_BLOCK) * xbsize)
-
-    _Conv_wgrad_cl3d_impl_V2[grid](
-        grad,
-        x,
-        weight_grad,
-        xH,
-        xW,
-        xD,
-        num_buffers,
-        IN_CHANNELS=in_channels,
-        OUT_CHANNELS=out_channels,
-        ACCTYPE=ACCTYPE,
-        D_BLOCK=D_BLOCK,
-        CIN_BLOCK=CIN_BLOCK,
-        COUT_BLOCK=COUT_BLOCK,
-        num_warps=num_warps,
-    )
-    
-    weight_grad = weight_grad.sum(dim=0).to(torch.float16)
-
-    return weight_grad
-
-
-conv3d_wgrad_splitk_config = TableKernelConfig(
-    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
-    toml_path=ASSETS_ROOT / 'Conv3dWgrad_splitk.toml'
-)
-
-
-@ConfiguredFunction.configure(conv3d_wgrad_splitk_config)
-def Conv3dWgrad_splitk(
-    grad,
-    x,
-    /,
-    *,
-    num_warps,
-    H_BLOCK,
-    WD_BLOCK,
-    CIN_BLOCK, 
-    COUT_BLOCK,
-    SPLIT_K,
-):
-    assert x.device == grad.device
-    assert x.is_cuda
-
-    assert x.ndim == grad.ndim == 5
-    xbsize, in_channels, xH, xW, xD = x.shape
-    gbsize, out_channels, gH, gW, gD = grad.shape
-    assert in_channels == next_power_of_2(in_channels)
-    assert out_channels == next_power_of_2(out_channels)
-    assert [xbsize, xH, xW, xD] == [gbsize, gH, gW, gD]
-
-    assert xbsize == gbsize
-
-    assert x.is_contiguous(memory_format=torch.channels_last_3d)
-    assert grad.is_contiguous(memory_format=torch.channels_last_3d)
-
-    assert x.dtype == grad.dtype == torch.float16
-
-    assert H_BLOCK == next_power_of_2(H_BLOCK)
-    assert WD_BLOCK == next_power_of_2(WD_BLOCK)
-    assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
-    assert CIN_BLOCK <= in_channels
-    assert COUT_BLOCK == next_power_of_2(COUT_BLOCK)
-    assert COUT_BLOCK <= out_channels
-
-    ACCTYPE = tl.float32
-    weight_grad = torch.zeros([xbsize, 3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
-
-    grid = (
-        27 * SPLIT_K,
-        cdiv(in_channels, CIN_BLOCK),
-        cdiv(out_channels, COUT_BLOCK) * xbsize
-    )
-
-    _Conv_wgrad_cl3d_splitk_impl[grid](
-        grad,
-        x,
-        weight_grad,
-        xH, xW, xD,
-        ACCTYPE=ACCTYPE,
-        H_BLOCK=H_BLOCK, W_BLOCK=WD_BLOCK, D_BLOCK=WD_BLOCK,
-        IN_CHANNELS=in_channels, OUT_CHANNELS=out_channels,
-        CIN_BLOCK=CIN_BLOCK, COUT_BLOCK=COUT_BLOCK,
-        SPLIT_K=SPLIT_K,
-        num_warps=num_warps,
-    )
-    
-    weight_grad = torch.sum(weight_grad, dim=0)
-    weight_grad = weight_grad.to(torch.float16)
-
-    return weight_grad
-
-
-conv3d_wgrad_splitk_3acc_config = TableKernelConfig(
-    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
-    toml_path=ASSETS_ROOT / 'Conv3dWgrad_splitk_3acc.toml'
-)
-
-
-@ConfiguredFunction.configure(conv3d_wgrad_splitk_3acc_config)
-def Conv3dWgrad_splitk_3acc(
-    grad,
-    x,
-    /,
-    *,
-    num_warps,
-    H_BLOCK,
-    WD_BLOCK,
-    CIN_BLOCK, 
-    COUT_BLOCK,
-    SPLIT_K,
-):
-    assert x.device == grad.device
-    assert x.is_cuda
-
-    assert x.ndim == grad.ndim == 5
-    xbsize, in_channels, xH, xW, xD = x.shape
-    gbsize, out_channels, gH, gW, gD = grad.shape
-    assert in_channels == next_power_of_2(in_channels)
-    assert out_channels == next_power_of_2(out_channels)
-    assert [xbsize, xH, xW, xD] == [gbsize, gH, gW, gD]
-
-    assert xbsize == gbsize
-
-    assert x.is_contiguous(memory_format=torch.channels_last_3d)
-    assert grad.is_contiguous(memory_format=torch.channels_last_3d)
-
-    assert x.dtype == grad.dtype == torch.float16
-
-    assert H_BLOCK == next_power_of_2(H_BLOCK)
-    assert WD_BLOCK == next_power_of_2(WD_BLOCK)
-    assert CIN_BLOCK == next_power_of_2(CIN_BLOCK)
-    assert CIN_BLOCK <= in_channels
-    assert COUT_BLOCK == next_power_of_2(COUT_BLOCK)
-    assert COUT_BLOCK <= out_channels
-
-    ACCTYPE = tl.float32
-    weight_grad = torch.zeros([xbsize, 3, 3, 3, in_channels, out_channels], device=x.device, dtype=torch.float32)
-
-    grid = (
-        9 * SPLIT_K,
-        cdiv(in_channels, CIN_BLOCK),
-        cdiv(out_channels, COUT_BLOCK) * xbsize
-    )
-
-    _Conv_wgrad_cl3d_splitk_3acc_impl[grid](
-        grad,
-        x,
-        weight_grad,
-        xH, xW, xD,
-        ACCTYPE=ACCTYPE,
-        H_BLOCK=H_BLOCK, W_BLOCK=WD_BLOCK, D_BLOCK=WD_BLOCK,
-        IN_CHANNELS=in_channels, OUT_CHANNELS=out_channels,
-        CIN_BLOCK=CIN_BLOCK, COUT_BLOCK=COUT_BLOCK,
-        SPLIT_K=SPLIT_K,
-        num_warps=num_warps,
-    )
-    
-    weight_grad = torch.sum(weight_grad, dim=0)
-    weight_grad = weight_grad.to(torch.float16)
-
-    return weight_grad
+def _problem_sizes(grad, x):
+    return {'in_channels': x.shape[1], 'out_channels': grad.shape[1]}
 
 
 conv3d_wgrad_config = TableKernelConfig(
-    args_to_problem_sizes=lambda grad, x: {'in_channels': x.shape[1], 'out_channels': grad.shape[1]},
+    args_to_problem_sizes=_problem_sizes,
     toml_path=ASSETS_ROOT / 'Conv3dWgrad.toml'
 )
 
 
 @ConfiguredFunction.configure(conv3d_wgrad_config)
 def Conv3dWgrad(
-    grad,
-    x,
-    /,
-    *,
-    IMPL_ID,
-    SWAP_GRAD_X,
+    grad, x, /, *, P_BLOCK, Q_BLOCK, TH, TW, TD, GH, GW, GD, NUM_STAGES, WARPS_M, WARPS_N, SWAP, PROGRAMS,
 ):
-    if SWAP_GRAD_X:
-        grad, x = x, grad
+    """Weight gradient [3, 3, 3, in, out] of the 3x3x3 convolution, padding 1, of `x` whose output gradient is `grad`.
+    P is the operand read with an H/W halo: x, or grad when SWAP. Programs: about PROGRAMS, each for GH x GW x GD taps,
+    a P_BLOCK x Q_BLOCK block of channels and a share of the TH x TW x TD tiles."""
+    check_activation(x)
+    check_activation(grad)
+    assert grad.device == x.device and grad.shape[0] == x.shape[0] and grad.shape[2:] == x.shape[2:]
+    bsize, in_channels, H, W, D = x.shape
+    assert H * W * D * max(in_channels, grad.shape[1]) < 2**31, 'offsets inside one sample are int32'
 
-    match IMPL_ID:
-        case 0:
-            weight_grad = Conv3dWgrad_grad_based(grad, x)
-        case 1:
-            weight_grad = Conv3dWgrad_splitk(grad, x)
-        case 2:
-            weight_grad = Conv3dWgrad_splitk_3acc(grad, x)
-
-    if SWAP_GRAD_X:
-        weight_grad = weight_grad.permute(0, 1, 2, 4, 3)
-        weight_grad = torch.flip(weight_grad, dims=(0, 1, 2))
-        weight_grad = weight_grad.contiguous()
-    
-    return weight_grad
-
-
-def pruning_rule(problem_size, named_config):
-    D_BLOCK = named_config['D_BLOCK']
-    CIN_BLOCK = named_config['CIN_BLOCK']
-    COUT_BLOCK = named_config['COUT_BLOCK']
-
-    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
-
-    if in_channels >= 32 and out_channels >= 32 and D_BLOCK > 32:
-        return False
-
-    if (in_channels >= 128 or out_channels >= 128) and D_BLOCK > 16:
-        return False
-
-    if CIN_BLOCK > in_channels or COUT_BLOCK > out_channels:
-        return False
-
-    return True
-
-
-def pruning_rule_splitk(problem_size, named_config):
-    H_BLOCK = named_config['H_BLOCK']
-    WD_BLOCK = named_config['WD_BLOCK']
-    CIN_BLOCK = named_config['CIN_BLOCK']
-    COUT_BLOCK = named_config['COUT_BLOCK']
-
-    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
-
-    if in_channels < CIN_BLOCK or out_channels < COUT_BLOCK:
-        return False
-
-    if in_channels // CIN_BLOCK > 4 or out_channels // COUT_BLOCK > 4:
-        return False
-
-    if H_BLOCK * WD_BLOCK * WD_BLOCK < 16:
-        return False
-
-    if H_BLOCK * WD_BLOCK * WD_BLOCK > 64:
-        return False
-
-    return True
+    p, q = (grad, x) if SWAP else (x, grad)
+    weight_grad = torch.zeros(3, 3, 3, in_channels, grad.shape[1], device=x.device, dtype=torch.float32)
+    n_tiles = bsize * cdiv(H, TH) * cdiv(W, TW) * cdiv(D, TD)
+    work = (3 // GH) * (3 // GW) * (3 // GD) * (p.shape[1] // P_BLOCK) * (q.shape[1] // Q_BLOCK)
+    grid = (work * max(1, PROGRAMS // work),)
+    _Conv_wgrad_cl3d_halo[grid](
+        p, q, weight_grad, H, W, D, n_tiles, p.shape[1], q.shape[1], P_BLOCK, Q_BLOCK, TH, TW, TD, GH, GW, GD,
+        NUM_STAGES, WARPS_M, WARPS_N, SWAP, num_warps=WARPS_M * WARPS_N,
+    )
+    return weight_grad.to(torch.float16)
 
 
 def generate_inputs_conv_wgrad(problem_sizes):
@@ -308,101 +57,37 @@ def cudnn_wgrad(grad, x):
     return weight_grad.permute(2, 3, 4, 1, 0)
 
 
-def autotune_conv_wgrad_grad_based(toml_path, **autotune_kwargs):
-    channels = [2 ** i for i in range(4, 8)]
-    problem_sizes = [
-        {'in_channels': cin, 'out_channels': cout}
-        for cin in channels
-        for cout in channels
-        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
-    ]
-
-    autotune(
-        getattr(Conv3dWgrad_grad_based, 'function', Conv3dWgrad_grad_based),
-        generate_inputs_conv_wgrad,
-        problem_sizes,
-        pruning_rule,
-        toml_path,
-        comparator=cudnn_wgrad,
-        **autotune_kwargs,
-        num_warps=[1, 2, 4],
-        D_BLOCK=[16, 32],
-        REDUCTION_FACTOR=[32],
-        CIN_BLOCK=channels,
-        COUT_BLOCK=channels,
+def pruning_rule(problem_size, config):
+    """Channel blocks of at least half the channels, mma warps tiling the block, fp32 accumulators of 32 to 128
+    registers a thread, shared memory for two programs on an SM, and 96 to 1024 mma a warp per tile: fewer do not
+    pay for the loads of a tile, more unroll into minutes of compilation. SWAP only where it changes which operand
+    has the halo."""
+    in_channels, out_channels = problem_size['in_channels'], problem_size['out_channels']
+    p_channels, q_channels = (out_channels, in_channels) if config['SWAP'] else (in_channels, out_channels)
+    p_block, q_block, warps_m, warps_n = config['P_BLOCK'], config['Q_BLOCK'], config['WARPS_M'], config['WARPS_N']
+    taps = config['GH'] * config['GW'] * config['GD']
+    p_planes = (config['TH'] + config['GH'] - 1) * (config['TW'] + config['GW'] - 1)
+    q_planes = config['GD'] * config['TH'] * config['TW']
+    shared = 2 * config['NUM_STAGES'] * config['TD'] * (p_planes * p_block + q_planes * q_block)
+    mma = taps * config['TH'] * config['TW'] * config['TD'] // 16 * (p_block // (16 * warps_m)) * (q_block // (8 * warps_n))
+    return (
+        p_channels // 2 <= p_block <= p_channels and q_channels // 2 <= q_block <= q_channels
+        and 16 * warps_m <= p_block and 8 * warps_n <= q_block
+        and 32 <= taps * p_block * q_block // (32 * warps_m * warps_n) <= 128
+        and shared <= 48 * 1024
+        and 96 <= mma <= 1024
+        and not (config['SWAP'] and in_channels == out_channels)
     )
 
 
-def autotune_conv_wgrad_splitk(toml_path, **autotune_kwargs):
-    channels = [2 ** i for i in range(4, 8)]
-    problem_sizes = [
-        {'in_channels': cin, 'out_channels': cout}
-        for cin in channels
-        for cout in channels
-        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
-    ]
-
-    autotune(
-        getattr(Conv3dWgrad_splitk, 'function', Conv3dWgrad_splitk),
-        generate_inputs_conv_wgrad,
-        problem_sizes,
-        pruning_rule_splitk,
-        toml_path,
-        comparator=cudnn_wgrad,
-        **autotune_kwargs,
-        num_warps=[1, 2, 4],
-        H_BLOCK=[2, 4, 8, 16],
-        WD_BLOCK=[2, 4, 8, 16],
-        CIN_BLOCK=channels,
-        COUT_BLOCK=channels,
-        SPLIT_K=[4, 8, 16],
-    )
-
-
-def autotune_conv_wgrad_splitk_3acc(toml_path, **autotune_kwargs):
-    channels = [2 ** i for i in range(4, 8)]
-    problem_sizes = [
-        {'in_channels': cin, 'out_channels': cout}
-        for cin in channels
-        for cout in channels
-        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
-    ]
-
-    autotune(
-        getattr(Conv3dWgrad_splitk_3acc, 'function', Conv3dWgrad_splitk_3acc),
-        generate_inputs_conv_wgrad,
-        problem_sizes,
-        pruning_rule_splitk,
-        toml_path,
-        comparator=cudnn_wgrad,
-        **autotune_kwargs,
-        num_warps=[1, 2, 4],
-        H_BLOCK=[2, 4, 8, 16],
-        WD_BLOCK=[2, 4, 8, 16],
-        CIN_BLOCK=channels,
-        COUT_BLOCK=channels,
-        SPLIT_K=[8, 16, 32],
-    )
+SEARCH_SPACE = dict(
+    P_BLOCK=[16, 32, 64, 128], Q_BLOCK=[16, 32, 64, 128], TH=[1, 2, 4], TW=[2, 4], TD=[16, 32], GH=[1, 3], GW=[1, 3],
+    GD=[1, 3], NUM_STAGES=[1], WARPS_M=[1, 2], WARPS_N=[1, 2, 4], SWAP=[False, True], PROGRAMS=[256],
+)
 
 
 def autotune_conv_wgrad(toml_path, **autotune_kwargs):
-    channels = [2 ** i for i in range(4, 8)]
-    problem_sizes = [
-        {'in_channels': cin, 'out_channels': cout}
-        for cin in channels
-        for cout in channels
-        if (cin == 2 * cout) or (cin * 2 == cout) or (cin == cout)
-    ]
-
     autotune(
-        getattr(Conv3dWgrad, 'function', Conv3dWgrad),
-        generate_inputs_conv_wgrad,
-        problem_sizes,
-        pruning_rule=None,
-        toml_path=toml_path,
-        comparator=cudnn_wgrad,
-        rep_ms=200,
-        **autotune_kwargs,
-        IMPL_ID=[0, 1, 2],
-        SWAP_GRAD_X=[False, True],
+        Conv3dWgrad.function, generate_inputs_conv_wgrad, channel_pairs(), pruning_rule, toml_path,
+        comparator=cudnn_wgrad, rep_ms=50, **autotune_kwargs, **SEARCH_SPACE,
     )
