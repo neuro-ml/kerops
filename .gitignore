@@ -20,5 +20,8 @@ pip-delete-this-directory.txt
 # Unit test / coverage reports
 .pytest_cache/
 
-# Jupyter Notebook
-.ipynb_checkpoints/
+# Profiling
+*.ncu-rep
+PROF/
+
+.vscode

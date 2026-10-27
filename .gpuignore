@@ -1,0 +1,13 @@
+.git
+.venv
+.vscode
+.env
+*.pem
+*.key
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+PROF
+*.ncu-rep
+*.nsys-rep

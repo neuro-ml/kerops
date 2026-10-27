@@ -45,8 +45,9 @@ def _ReLULinearAdd(
         add_ptr += out_channels * D_block
 
 
+# TODO: suboptimal
 @triton.jit
-def _ReLULinearAddBackward(
+def _ReLULinearBackward(
     input_ptr,
     grad_ptr,
     input_grad_ptr,

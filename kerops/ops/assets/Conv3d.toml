@@ -1,0 +1,134 @@
+[meta]
+problem_size_names = ['in_channels', 'out_channels']
+
+["NVIDIA GeForce RTX 4090"]
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [16, 16]
+  BLOCK_K = 16
+  TH = 4
+  TW = 4
+  TD = 16
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 2
+  POSITION_MAJOR = false
+  HALO_VEC = 8
+  WEIGHT_VEC = 4
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [16, 32]
+  BLOCK_K = 16
+  TH = 4
+  TW = 4
+  TD = 32
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 4
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 16]
+  BLOCK_K = 16
+  TH = 4
+  TW = 4
+  TD = 32
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  POSITION_MAJOR = true
+  HALO_VEC = 4
+  WEIGHT_VEC = 4
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 32]
+  BLOCK_K = 16
+  TH = 4
+  TW = 8
+  TD = 16
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 4
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 4
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 64]
+  BLOCK_K = 16
+  TH = 2
+  TW = 4
+  TD = 32
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 32]
+  BLOCK_K = 16
+  TH = 4
+  TW = 4
+  TD = 32
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 64]
+  BLOCK_K = 16
+  TH = 4
+  TW = 4
+  TD = 16
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 4
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 128]
+  BLOCK_K = 16
+  TH = 2
+  TW = 4
+  TD = 16
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 4
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 4
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [128, 64]
+  BLOCK_K = 16
+  TH = 8
+  TW = 2
+  TD = 16
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 4
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [128, 128]
+  BLOCK_K = 16
+  TH = 2
+  TW = 4
+  TD = 16
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 4
+  POSITION_MAJOR = true
+  HALO_VEC = 8
+  WEIGHT_VEC = 4
+

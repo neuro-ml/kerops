@@ -100,3 +100,18 @@ def weight_grad_similarity(input, other, rtol_cos=1e-4, atol_cos=1e-4, rtol_len=
     debug_info('All stages passed')
 
     return True
+
+
+def wgrad_errors(wgrad, reference):
+    """1 - cosine similarity of `wgrad` and `reference`, and the relative difference of their norms."""
+    wgrad, reference = wgrad.double().flatten(), reference.double().flatten()
+    cos_error = 1 - F.cosine_similarity(wgrad, reference, dim=0)
+    norm_error = (wgrad.norm() / reference.norm() - 1).abs()
+    return cos_error.item(), norm_error.item()
+
+
+def cdiv(a, b):
+    assert type(a) is int
+    assert type(b) is int
+
+    return (a + b - 1) // b
