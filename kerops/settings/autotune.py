@@ -3,6 +3,7 @@ import json
 import tomllib
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from functools import partial
 from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
@@ -31,7 +32,7 @@ FINAL_ROUNDS = 3
 
 
 def record_compilations(func, args, config) -> tuple[list[Compilation], str]:
-    """Kernels `func` needs for `config`, recorded instead of compiled or launched; the traceback if it raised, else ''."""
+    """Kernels `func` needs for `config`, recorded, not compiled or launched; the traceback if it raised, else ''."""
     compilations = []
 
     def skip_compilation(fn, compile, **_):
@@ -49,14 +50,17 @@ def record_compilations(func, args, config) -> tuple[list[Compilation], str]:
 
 
 def compile_specialization(compilation: Compilation, target) -> str:
-    """Compiles into triton's disk cache like `JITFunction.preload`, but without touching the GPU; the traceback or ''."""
+    """Compiles into triton's disk cache like `JITFunction.preload`, without touching the GPU; the traceback or ''."""
     module, name, specialization_data = compilation
     try:
         kernel = getattr(import_module(module), name)
         data = json.loads(specialization_data)
         constexprs = {
-            tuple(key): tl.dtype(value) if tl.dtype.is_dtype(value) else
-            tl.constexpr(value['constexpr']) if isinstance(value, dict) and 'constexpr' in value else value
+            tuple(key): (
+                tl.dtype(value)
+                if tl.dtype.is_dtype(value)
+                else tl.constexpr(value['constexpr']) if isinstance(value, dict) and 'constexpr' in value else value
+            )
             for key, value in zip(data['constant_keys'], data['constant_vals'])
         }
         attrs = {tuple(key): value for key, value in zip(data['attrs_keys'], data['attrs_vals'])}
@@ -76,22 +80,36 @@ def compile_specializations(compilations: list[Compilation], target, n_threads: 
         return list(threads.map(compile_specialization, compilations, itertools.repeat(target)))
 
 
-def compile_in_processes(func, generate_inputs, problem_sizes, configs_per_size, n_processes, n_threads) -> list[list[str]]:
-    """Compiles every config into triton's disk cache in GPU-free processes; tracebacks per problem size and config, '' where compiled."""
+def compile_in_processes(
+    func, generate_inputs, problem_sizes, configs_per_size, n_processes, n_threads
+) -> list[list[str]]:
+    """Compiles every config into triton's disk cache in GPU-free processes.
+
+    Tracebacks per problem size and config, '' where compiled."""
     recorded_per_size = []
     for problem_size, configs in zip(problem_sizes, configs_per_size):
         args = generate_inputs(problem_size)
         recorded_per_size.append([record_compilations(func, args, config) for config in configs])
         del args
 
-    unique = sorted({compilation for recorded in recorded_per_size for compilations, _ in recorded for compilation in compilations})
+    unique = sorted(
+        {compilation for recorded in recorded_per_size for compilations, _ in recorded for compilation in compilations}
+    )
     target = driver.active.get_current_target()
     with ProcessPoolExecutor(n_processes, mp_context=get_context('spawn')) as pool:
-        futures = [pool.submit(compile_specializations, unique[i:i + n_threads], target, n_threads) for i in range(0, len(unique), n_threads)]
-        compile_errors = dict(zip(unique, (error for future in tqdm(futures, desc='Compiling') for error in future.result())))
+        futures = [
+            pool.submit(compile_specializations, unique[i : i + n_threads], target, n_threads)
+            for i in range(0, len(unique), n_threads)
+        ]
+        compile_errors = dict(
+            zip(unique, (error for future in tqdm(futures, desc='Compiling') for error in future.result()))
+        )
 
     return [
-        [error or next((compile_errors[c] for c in compilations if compile_errors[c]), '') for compilations, error in recorded]
+        [
+            error or next((compile_errors[c] for c in compilations if compile_errors[c]), '')
+            for compilations, error in recorded
+        ]
         for recorded in recorded_per_size
     ]
 
@@ -118,7 +136,9 @@ def write_toml(path: Path, device: str, problem_size_names: list[str], entries: 
     """Writes `entries` as the configs of `device`, keeping the configs of other devices already in the file."""
     configs_per_device = {}
     if path.exists():
-        configs_per_device = {name: data['configs'] for name, data in tomllib.loads(path.read_text()).items() if name != 'meta'}
+        configs_per_device = {
+            name: data['configs'] for name, data in tomllib.loads(path.read_text()).items() if name != 'meta'
+        }
     configs_per_device[device] = entries
 
     lines = ['[meta]', f'problem_size_names = {problem_size_names}', '']
@@ -152,27 +172,40 @@ def autotune(
         [config for config in configs if pruning_rule is None or pruning_rule(problem_size, config)]
         for problem_size in problem_sizes
     ]
-    errors_per_size = compile_in_processes(func, generate_inputs, problem_sizes, configs_per_size, n_processes, n_threads)
+    errors_per_size = compile_in_processes(
+        func, generate_inputs, problem_sizes, configs_per_size, n_processes, n_threads
+    )
 
     entries = []
     devices = set()
-    for problem_size, configs, errors in tqdm(list(zip(problem_sizes, configs_per_size, errors_per_size)), desc='Benchmarking'):
+    for problem_size, configs, errors in tqdm(
+        list(zip(problem_sizes, configs_per_size, errors_per_size)), desc='Benchmarking'
+    ):
         if not configs:
             continue
         if all(errors):
-            raise RuntimeError(f'Compilation failed for {problem_size} - all configs cause exception.\nExample:\n{errors[0]}')
+            raise RuntimeError(
+                f'Compilation failed for {problem_size} - all configs cause exception.\nExample:\n{errors[0]}'
+            )
 
         args = generate_inputs(problem_size)
         devices.add(get_device_name_from_args(*args))
-        timings = [float('inf') if error else bench_ms(func, args, config, warmup_ms, rep_ms) for config, error in zip(configs, errors)]
-        ranked = sorted((index for index, timing in enumerate(timings) if timing != float('inf')), key=timings.__getitem__)
+        timings = [
+            float('inf') if error else bench_ms(func, args, config, warmup_ms, rep_ms)
+            for config, error in zip(configs, errors)
+        ]
+        ranked = sorted(
+            (index for index, timing in enumerate(timings) if timing != float('inf')), key=timings.__getitem__
+        )
         if not ranked:
             warn(f'No valid configs for {problem_size=}, skipping', stacklevel=2)
             continue
         best_ms, best = best_of_finalists(func, args, [configs[index] for index in ranked[:FINALISTS]], warmup_ms)
 
         if comparator is not None:
-            ratio = do_bench(lambda: comparator(*args), warmup=warmup_ms, rep=FINAL_REP_MS, return_mode='median') / best_ms
+            ratio = (
+                do_bench(partial(comparator, *args), warmup=warmup_ms, rep=FINAL_REP_MS, return_mode='median') / best_ms
+            )
             print(f'{problem_size=} best ratio - {ratio:.3f} (bigger is better)')
 
         entries.append({'problem_sizes': list(problem_size.values()), **best})

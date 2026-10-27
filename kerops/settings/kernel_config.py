@@ -1,7 +1,7 @@
 import tomllib
-from pathlib import Path
-from typing import Callable, Any
 from inspect import signature as get_signature
+from pathlib import Path
+from typing import Any, Callable
 
 from .utils import get_device_name_from_args
 
@@ -104,8 +104,5 @@ class TableKernelConfig:
     def __repr__(self):
         input_s = ', '.join(self.arg_names)
         inter_s = ', '.join(self.problem_size_names)
-        conf_s  = ', '.join(sorted(self.confarg_names))
-        return (
-            f'TableKernelConfig({input_s})'
-            f' -[{inter_s}]-> ({conf_s})'
-        )
+        conf_s = ', '.join(sorted(self.confarg_names))
+        return f'TableKernelConfig({input_s})' f' -[{inter_s}]-> ({conf_s})'

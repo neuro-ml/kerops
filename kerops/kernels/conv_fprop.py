@@ -4,6 +4,7 @@ from triton.experimental import gluon
 from triton.experimental.gluon import language as gl
 from triton.experimental.gluon.language.nvidia.ampere import async_copy as cp, mma_v2
 
+
 @gluon.constexpr_function
 def _rows_layout(row, num_warps, vec):
     """Each thread holds `vec` contiguous fp16 of a row-major tile with `row` columns. Triton lowers 16-byte cp.async
@@ -16,7 +17,9 @@ def _rows_layout(row, num_warps, vec):
 def _swizzled_layout(row, rank=2):
     """The swizzle triton picks for mma_v2 operands with `row` fp16 columns, for buffers of `rank` + 1 dimensions."""
     per_phase = max(1, 128 // (2 * row))
-    return gl.SwizzledSharedLayout(vec=8, per_phase=per_phase, max_phase=8 // per_phase, order=list(range(rank - 1, -1, -1)))
+    return gl.SwizzledSharedLayout(
+        vec=8, per_phase=per_phase, max_phase=8 // per_phase, order=list(range(rank - 1, -1, -1))
+    )
 
 
 @gluon.constexpr_function
@@ -26,7 +29,7 @@ def _mma_layout(warps_m, warps_n):
 
 @gluon.jit
 def _with_item(items, index: gl.constexpr, value):
-    return items[:index] + (value,) + items[index + 1:]
+    return items[:index] + (value,) + items[index + 1 :]
 
 
 @gluon.jit
@@ -42,16 +45,37 @@ def _store_position(out_ptr, acc, h, w, d0, H, W, D, COUT: gl.constexpr, TD: gl.
 def _add_in_loop(a, b):
     # An add the compiler cannot hoist out of the step loop: hoisted, each of the (TH+2)*(TW+2) plane offsets would
     # hold a 64-bit register for the whole loop.
-    return gl.inline_asm_elementwise("add.s32 $0, $1, $2;", "=r,r,r", [a, b], dtype=gl.int32, is_pure=False, pack=1)
+    return gl.inline_asm_elementwise('add.s32 $0, $1, $2;', '=r,r,r', [a, b], dtype=gl.int32, is_pure=False, pack=1)
 
 
 @gluon.jit
 def _issue_halo_loads(
-    step, x_ptr, w_ptr, a_planes, w_taps, row_starts, column_starts, h0, w0, d, H, W, D, k_a, k_w, n,
-    CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr, NUM_STAGES: gl.constexpr, TH: gl.constexpr, TW: gl.constexpr,
+    step,
+    x_ptr,
+    w_ptr,
+    a_planes,
+    w_taps,
+    row_starts,
+    column_starts,
+    h0,
+    w0,
+    d,
+    H,
+    W,
+    D,
+    k_a,
+    k_w,
+    n,
+    CIN: gl.constexpr,
+    COUT: gl.constexpr,
+    BLOCK_K: gl.constexpr,
+    NUM_STAGES: gl.constexpr,
+    TH: gl.constexpr,
+    TW: gl.constexpr,
 ):
     # Step (cin block, kd): the (TH+2) x (TW+2) H/W halo planes of the input rows shifted by kd, and the 9 (kh, kw)
-    # weights of kd. Steps past the end reload a valid step into a buffer nobody reads, which keeps the loop free of tails.
+    # weights of kd. Steps past the end reload a valid step into a buffer nobody reads, which keeps the loop free of
+    # tails.
     PLANES: gl.constexpr = (TH + 2) * (TW + 2)
     wrapped = step % (3 * (CIN // BLOCK_K))
     cin_offset = wrapped // 3 * BLOCK_K
@@ -65,7 +89,9 @@ def _issue_halo_loads(
         w = w0 + plane % (TW + 2) - 1
         inside = rows_inside & (h >= 0) & (h < H) & (w >= 0) & (w < W)
         plane_offset = _add_in_loop(row_starts[plane // (TW + 2)], column_starts[plane % (TW + 2)]) * 16
-        cp.async_copy_global_to_shared(a_planes[plane].index(stage), x_ptr + (a_cols + plane_offset), mask=inside[:, None])
+        cp.async_copy_global_to_shared(
+            a_planes[plane].index(stage), x_ptr + (a_cols + plane_offset), mask=inside[:, None]
+        )
     for tap_hw in gl.static_range(9):
         w_rows = (tap_hw * 3 + kd) * CIN + cin_offset + k_w
         cp.async_copy_global_to_shared(w_taps[tap_hw].index(stage), w_ptr + w_rows[:, None] * COUT + n[None, :])
@@ -74,10 +100,24 @@ def _issue_halo_loads(
 
 @gluon.jit
 def _Conv_cl3d_tiled_halo(
-    x_ptr, w_ptr, out_ptr, H, W, D,
-    CIN: gl.constexpr, COUT: gl.constexpr, BLOCK_K: gl.constexpr, TH: gl.constexpr, TW: gl.constexpr, TD: gl.constexpr,
-    NUM_STAGES: gl.constexpr, WARPS_M: gl.constexpr, WARPS_N: gl.constexpr, POSITION_MAJOR: gl.constexpr,
-    HALO_VEC: gl.constexpr, WEIGHT_VEC: gl.constexpr,
+    x_ptr,
+    w_ptr,
+    out_ptr,
+    H,
+    W,
+    D,
+    CIN: gl.constexpr,
+    COUT: gl.constexpr,
+    BLOCK_K: gl.constexpr,
+    TH: gl.constexpr,
+    TW: gl.constexpr,
+    TD: gl.constexpr,
+    NUM_STAGES: gl.constexpr,
+    WARPS_M: gl.constexpr,
+    WARPS_N: gl.constexpr,
+    POSITION_MAJOR: gl.constexpr,
+    HALO_VEC: gl.constexpr,
+    WEIGHT_VEC: gl.constexpr,
 ):
     """TH x TW positions in H/W times TD along D per program. Each pipeline step (cin block, kd) brings the halo planes
     and 9 weights into shared memory; taps index planes, so no plane is copied twice. The 3 taps of one kh row
@@ -125,22 +165,64 @@ def _Conv_cl3d_tiled_halo(
     # barrier before every copy into it.
     a_planes = ()
     for plane in gl.static_range(PLANES):
-        a_planes = a_planes + (gl.allocate_shared_memory(gl.float16, [NUM_STAGES, TD, BLOCK_K], _swizzled_layout(BLOCK_K)),)
+        a_planes = a_planes + (
+            gl.allocate_shared_memory(gl.float16, [NUM_STAGES, TD, BLOCK_K], _swizzled_layout(BLOCK_K)),
+        )
     w_taps = ()
     for tap_hw in gl.static_range(9):
         w_taps = w_taps + (gl.allocate_shared_memory(gl.float16, [NUM_STAGES, BLOCK_K, COUT], _swizzled_layout(COUT)),)
 
     for step in gl.static_range(NUM_STAGES - 1):
         _issue_halo_loads(
-            step, x_ptr, w_ptr, a_planes, w_taps, row_starts, column_starts, h0, w0, d, H, W, D, k_a, k_w, n,
-            CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW,
+            step,
+            x_ptr,
+            w_ptr,
+            a_planes,
+            w_taps,
+            row_starts,
+            column_starts,
+            h0,
+            w0,
+            d,
+            H,
+            W,
+            D,
+            k_a,
+            k_w,
+            n,
+            CIN,
+            COUT,
+            BLOCK_K,
+            NUM_STAGES,
+            TH,
+            TW,
         )
 
     accs = (gl.zeros([TD, COUT], gl.float32, mma_layout),) * POSITIONS
     for step in range(STEPS):
         _issue_halo_loads(
-            step + NUM_STAGES - 1, x_ptr, w_ptr, a_planes, w_taps, row_starts, column_starts, h0, w0, d, H, W, D, k_a, k_w, n,
-            CIN, COUT, BLOCK_K, NUM_STAGES, TH, TW,
+            step + NUM_STAGES - 1,
+            x_ptr,
+            w_ptr,
+            a_planes,
+            w_taps,
+            row_starts,
+            column_starts,
+            h0,
+            w0,
+            d,
+            H,
+            W,
+            D,
+            k_a,
+            k_w,
+            n,
+            CIN,
+            COUT,
+            BLOCK_K,
+            NUM_STAGES,
+            TH,
+            TW,
         )
         cp.wait_group(NUM_STAGES - 1)
         stage = step % NUM_STAGES
@@ -150,7 +232,11 @@ def _Conv_cl3d_tiled_halo(
                     part = gl.zeros([TD, COUT], gl.float16, mma_layout)
                     for kw in gl.static_range(3):
                         b = w_taps[kh * 3 + kw].index(stage).load(b_dot_layout)
-                        a = a_planes[(position // TW + kh) * (TW + 2) + position % TW + kw].index(stage).load(a_dot_layout)
+                        a = (
+                            a_planes[(position // TW + kh) * (TW + 2) + position % TW + kw]
+                            .index(stage)
+                            .load(a_dot_layout)
+                        )
                         part = mma_v2(a, b, part)
                     accs = _with_item(accs, position, accs[position] + part.to(gl.float32))
         else:
@@ -159,11 +245,17 @@ def _Conv_cl3d_tiled_halo(
                 for kw in gl.static_range(3):
                     b = w_taps[kh * 3 + kw].index(stage).load(b_dot_layout)
                     for position in gl.static_range(POSITIONS):
-                        a = a_planes[(position // TW + kh) * (TW + 2) + position % TW + kw].index(stage).load(a_dot_layout)
+                        a = (
+                            a_planes[(position // TW + kh) * (TW + 2) + position % TW + kw]
+                            .index(stage)
+                            .load(a_dot_layout)
+                        )
                         parts = _with_item(parts, position, mma_v2(a, b, parts[position]))
                 for position in gl.static_range(POSITIONS):
                     accs = _with_item(accs, position, accs[position] + parts[position].to(gl.float32))
     cp.wait_group(0)
 
     for position in gl.static_range(POSITIONS):
-        _store_position(out_ptr, accs[position], h0 + position // TW, w0 + position % TW, d0, H, W, D, COUT, TD, out_layout)
+        _store_position(
+            out_ptr, accs[position], h0 + position // TW, w0 + position % TW, d0, H, W, D, COUT, TD, out_layout
+        )

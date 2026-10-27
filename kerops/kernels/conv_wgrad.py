@@ -1,4 +1,4 @@
-"""Conv3d weight-gradient kernel in gluon (sm_80+): cp.async into shared memory, mma_v2 into fp16 partials, fp32 sums."""
+"""Conv3d weight-gradient kernel in gluon (sm_80+): cp.async to shared memory, mma_v2 into fp16 partials, fp32 sums."""
 
 from triton.experimental import gluon
 from triton.experimental.gluon import language as gl
@@ -20,15 +20,25 @@ def _copy_layout(sets, rows, columns, num_warps, vec):
     threads_along_rows = min(32 // threads_along_columns, rows)
     warps_along_rows = min(num_warps, max(1, rows // threads_along_rows))
     return gl.BlockedLayout(
-        [1, 1, vec], [32 // (threads_along_columns * threads_along_rows), threads_along_rows, threads_along_columns],
-        [num_warps // warps_along_rows, warps_along_rows, 1], [2, 1, 0],
+        [1, 1, vec],
+        [32 // (threads_along_columns * threads_along_rows), threads_along_rows, threads_along_columns],
+        [num_warps // warps_along_rows, warps_along_rows, 1],
+        [2, 1, 0],
     )
 
 
 @gluon.jit
-def _row_offsets(sets: gl.constexpr, used_sets: gl.constexpr, rows: gl.constexpr, columns: gl.constexpr,
-                 row_stride: gl.constexpr, set_step: gl.constexpr, first_row: gl.constexpr, channels: gl.constexpr,
-                 layout: gl.constexpr):
+def _row_offsets(
+    sets: gl.constexpr,
+    used_sets: gl.constexpr,
+    rows: gl.constexpr,
+    columns: gl.constexpr,
+    row_stride: gl.constexpr,
+    set_step: gl.constexpr,
+    first_row: gl.constexpr,
+    channels: gl.constexpr,
+    layout: gl.constexpr,
+):
     """D rows row_stride * t + set_step * s + first_row of a copy, their offsets in a plane, and the used sets."""
     s = gl.arange(0, sets, layout=gl.SliceLayout(1, gl.SliceLayout(2, layout)))
     t = gl.arange(0, rows, layout=gl.SliceLayout(0, gl.SliceLayout(2, layout)))
@@ -91,9 +101,29 @@ def _tile_origin(tile, H, W, D, TH: gl.constexpr, TW: gl.constexpr, TD: gl.const
 
 @gluon.jit
 def _issue_tile_loads(
-    i, split, splits, n_tiles, p_ptr, q_ptr, p_planes, q_planes, H, W, D, kh0, kw0, p_rows, q_rows,
-    P_CHANNELS: gl.constexpr, Q_CHANNELS: gl.constexpr, TH: gl.constexpr, TW: gl.constexpr, TD: gl.constexpr,
-    GH: gl.constexpr, GW: gl.constexpr, NUM_STAGES: gl.constexpr,
+    i,
+    split,
+    splits,
+    n_tiles,
+    p_ptr,
+    q_ptr,
+    p_planes,
+    q_planes,
+    H,
+    W,
+    D,
+    kh0,
+    kw0,
+    p_rows,
+    q_rows,
+    P_CHANNELS: gl.constexpr,
+    Q_CHANNELS: gl.constexpr,
+    TH: gl.constexpr,
+    TW: gl.constexpr,
+    TD: gl.constexpr,
+    GH: gl.constexpr,
+    GW: gl.constexpr,
+    NUM_STAGES: gl.constexpr,
 ):
     # Tiles past the end wrap to a valid one loaded into a buffer nobody reads: the loop needs no tail.
     sample, h0, w0, d0 = _tile_origin((split + i * splits) % n_tiles, H, W, D, TH, TW, TD)
@@ -122,11 +152,29 @@ def _issue_tile_loads(
 
 @gluon.jit
 def _Conv_wgrad_cl3d_halo(
-    p_ptr, q_ptr, out_ptr, H, W, D, n_tiles,
-    P_CHANNELS: gl.constexpr, Q_CHANNELS: gl.constexpr, P_BLOCK: gl.constexpr, Q_BLOCK: gl.constexpr,
-    TH: gl.constexpr, TW: gl.constexpr, TD: gl.constexpr, GH: gl.constexpr, GW: gl.constexpr, WINOGRAD: gl.constexpr,
-    NUM_STAGES: gl.constexpr, WARPS_M: gl.constexpr, WARPS_N: gl.constexpr, SWAP: gl.constexpr,
-    P_VEC: gl.constexpr, Q_VEC: gl.constexpr,
+    p_ptr,
+    q_ptr,
+    out_ptr,
+    H,
+    W,
+    D,
+    n_tiles,
+    P_CHANNELS: gl.constexpr,
+    Q_CHANNELS: gl.constexpr,
+    P_BLOCK: gl.constexpr,
+    Q_BLOCK: gl.constexpr,
+    TH: gl.constexpr,
+    TW: gl.constexpr,
+    TD: gl.constexpr,
+    GH: gl.constexpr,
+    GW: gl.constexpr,
+    WINOGRAD: gl.constexpr,
+    NUM_STAGES: gl.constexpr,
+    WARPS_M: gl.constexpr,
+    WARPS_N: gl.constexpr,
+    SWAP: gl.constexpr,
+    P_VEC: gl.constexpr,
+    Q_VEC: gl.constexpr,
 ):
     """Adds Σ P[v + tap - 1]ᵀ Q[v] over this program's tiles, for its taps and channel blocks, to fp32 `out`."""
     NUM_WARPS: gl.constexpr = WARPS_M * WARPS_N
@@ -180,15 +228,57 @@ def _Conv_wgrad_cl3d_halo(
 
     for i in gl.static_range(NUM_STAGES - 1):
         _issue_tile_loads(
-            i, split, splits, n_tiles, p_ptr, q_ptr, p_planes, q_planes, H, W, D, kh0, kw0, p_rows, q_rows,
-            P_CHANNELS, Q_CHANNELS, TH, TW, TD, GH, GW, NUM_STAGES,
+            i,
+            split,
+            splits,
+            n_tiles,
+            p_ptr,
+            q_ptr,
+            p_planes,
+            q_planes,
+            H,
+            W,
+            D,
+            kh0,
+            kw0,
+            p_rows,
+            q_rows,
+            P_CHANNELS,
+            Q_CHANNELS,
+            TH,
+            TW,
+            TD,
+            GH,
+            GW,
+            NUM_STAGES,
         )
 
     accs = (gl.zeros([P_BLOCK, Q_BLOCK], gl.float32, mma_layout),) * (TAPS * SUMS)
     for i in range(gl.cdiv(n_tiles - split, splits)):
         _issue_tile_loads(
-            i + NUM_STAGES - 1, split, splits, n_tiles, p_ptr, q_ptr, p_planes, q_planes, H, W, D, kh0, kw0,
-            p_rows, q_rows, P_CHANNELS, Q_CHANNELS, TH, TW, TD, GH, GW, NUM_STAGES,
+            i + NUM_STAGES - 1,
+            split,
+            splits,
+            n_tiles,
+            p_ptr,
+            q_ptr,
+            p_planes,
+            q_planes,
+            H,
+            W,
+            D,
+            kh0,
+            kw0,
+            p_rows,
+            q_rows,
+            P_CHANNELS,
+            Q_CHANNELS,
+            TH,
+            TW,
+            TD,
+            GH,
+            GW,
+            NUM_STAGES,
         )
         cp.wait_group(NUM_STAGES - 1)
         stage = i % NUM_STAGES
@@ -213,7 +303,11 @@ def _Conv_wgrad_cl3d_halo(
         for kd in gl.static_range(3):
             if SWAP:
                 # P is grad and Q is x: the sum is the transposed gradient of the mirrored tap.
-                offsets = (((2 - kh) * 3 + 2 - kw) * 3 + 2 - kd) * P_CHANNELS * Q_CHANNELS + n[None, :] * P_CHANNELS + m[:, None]
+                offsets = (
+                    (((2 - kh) * 3 + 2 - kw) * 3 + 2 - kd) * P_CHANNELS * Q_CHANNELS
+                    + n[None, :] * P_CHANNELS
+                    + m[:, None]
+                )
             else:
                 offsets = ((kh * 3 + kw) * 3 + kd) * P_CHANNELS * Q_CHANNELS + m[:, None] * Q_CHANNELS + n[None, :]
             gl.atomic_add(out_ptr + offsets, kd_taps[kd], sem='relaxed')

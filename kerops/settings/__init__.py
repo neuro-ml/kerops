@@ -1,3 +1,3 @@
 from .autotune import autotune
-from .wrapper import ConfiguredFunction
 from .kernel_config import TableKernelConfig
+from .wrapper import ConfiguredFunction

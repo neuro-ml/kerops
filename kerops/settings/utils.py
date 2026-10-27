@@ -11,7 +11,7 @@ def device_name(index: int) -> str:
 
 
 def get_device_name_from_args(*args):
-    device_indices = {arg.device.index for arg in args if isinstance (arg, Tensor) and arg.device.type == 'cuda'}
+    device_indices = {arg.device.index for arg in args if isinstance(arg, Tensor) and arg.device.type == 'cuda'}
 
     if len(device_indices) == 1:
         return device_name(device_indices.pop())

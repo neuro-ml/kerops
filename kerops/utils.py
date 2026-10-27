@@ -111,7 +111,7 @@ def wgrad_errors(wgrad, reference):
 
 
 def cdiv(a, b):
-    assert type(a) == int
-    assert type(b) == int
+    assert type(a) is int
+    assert type(b) is int
 
     return (a + b - 1) // b

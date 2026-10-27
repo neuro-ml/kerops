@@ -1,15 +1,13 @@
 import torch
 from triton import language as tl, next_power_of_2
 
-from ..assets import ASSETS_ROOT
 from ...kernels.dw_conv import _DWConv_cl3d_impl
-from ...settings import autotune, TableKernelConfig, ConfiguredFunction
+from ...settings import ConfiguredFunction, TableKernelConfig, autotune
 from ...utils import cdiv
-
+from ..assets import ASSETS_ROOT
 
 dwconv_config = TableKernelConfig(
-    args_to_problem_sizes=lambda x, weight: {'channels': weight.shape[-1]},
-    toml_path=ASSETS_ROOT / 'DWConv.toml'
+    args_to_problem_sizes=lambda x, weight: {'channels': weight.shape[-1]}, toml_path=ASSETS_ROOT / 'DWConv.toml'
 )
 
 
@@ -64,7 +62,9 @@ def generate_inputs_dwconv(problem_sizes, device='cuda'):
     else:
         base = 128
 
-    x = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    x = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
     w = torch.randn(3, 3, 3, channels, device=device, dtype=torch.float16)
 
     return x, w
@@ -85,7 +85,7 @@ def pruning_rule(problem_size, named_config):
 
 
 def autotune_dwconv(toml_path, **autotune_kwargs):
-    problem_sizes = [{'channels': channels} for channels in [2 ** i for i in range(3, 8)]]
+    problem_sizes = [{'channels': channels} for channels in [2**i for i in range(3, 8)]]
 
     autotune(
         getattr(DWConv, 'function', DWConv),

@@ -8,7 +8,6 @@ from torch.nn import functional as F
 from kerops.ops.linear import LinBReLULinAdd, LinBReLULinBackward, ReLULinearAdd, ReLULinearBackward
 from kerops.utils import allclose_two_stage, weight_grad_similarity
 
-
 # Error budget of the forward linear ops (fp16 intermediates), relative to the output std of an fp32 reference.
 LINEAR_MAX_ERROR = 5e-3
 LINEAR_MEAN_ERROR = 4e-4

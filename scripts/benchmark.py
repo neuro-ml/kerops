@@ -1,5 +1,6 @@
 """Times every kerops op against the torch code it replaces over channels and input sizes (1, C, S, S, S), fp16,
 channels_last_3d, and prints a markdown table per op under a header naming the GPU and the kerops version."""
+
 import argparse
 
 import torch
@@ -17,7 +18,6 @@ from kerops.ops.conv.conv_wgrad import cudnn_wgrad
 from kerops.ops.linear import LinBReLULinAdd, LinBReLULinBackward, ReLULinearAdd, ReLULinearBackward
 from kerops.ops.quantization import DequantUint8Window, QuantUint8Window
 from kerops.ops.stats import Stats, StatsBackward
-
 
 SIZES = [32, 64, 128, 256]
 # One activation of at most 1 GiB in fp16 leaves room for torch's fp32 intermediates on a 24 GB GPU.
@@ -58,6 +58,7 @@ def stats_grad(r, mean_grad, sqmean_grad):
 
 # Each op below takes its channels and the input size and returns (kerops call, torch call).
 
+
 def conv3d(channels, size):
     in_channels, out_channels = channels
     x = activation(in_channels, size)
@@ -83,37 +84,43 @@ def dwconv_wgrad(c, s):
     x, grad = activation(c, s), activation(c, s)
     weight_torch = torch.empty(c, 1, 3, 3, 3, device='cuda', dtype=torch.float16)
     return lambda: DWConvWGRAD(x, grad), lambda: torch.ops.aten.convolution_backward(
-        grad, x, weight_torch, None, [1] * 3, [1] * 3, [1] * 3, False, [0] * 3, c, [False, True, False])
+        grad, x, weight_torch, None, [1] * 3, [1] * 3, [1] * 3, False, [0] * 3, c, [False, True, False]
+    )
 
 
 def relu_linear_add(c, s):
     x, other = activation(c, s), activation(c // 2, s)
-    weight = torch.randn(c, c // 2, device='cuda', dtype=torch.float16) / c ** 0.5
+    weight = torch.randn(c, c // 2, device='cuda', dtype=torch.float16) / c**0.5
     return lambda: ReLULinearAdd(x, weight, other), lambda: torch.addmm(flat(other), flat(x).relu(), weight)
 
 
 def relu_linear_backward(c, s):
     x, grad = activation(c, s), activation(c // 2, s)
-    weight = torch.randn(c, c // 2, device='cuda', dtype=torch.float16) / c ** 0.5
+    weight = torch.randn(c, c // 2, device='cuda', dtype=torch.float16) / c**0.5
 
     def reference():
         fx, fg = flat(x), flat(grad)
         return (fg @ weight.T) * (fx > 0), fx.relu().T @ fg
+
     return lambda: ReLULinearBackward(x, grad, weight), reference
 
 
 def linear_weights(c):
     """Up and down weights and the bias of a c -> 2c -> c block."""
-    return (torch.randn(c, 2 * c, device='cuda', dtype=torch.float16) / c ** 0.5,
-            torch.randn(2 * c, c, device='cuda', dtype=torch.float16) / (2 * c) ** 0.5,
-            torch.randn(2 * c, device='cuda', dtype=torch.float16))
+    return (
+        torch.randn(c, 2 * c, device='cuda', dtype=torch.float16) / c**0.5,
+        torch.randn(2 * c, c, device='cuda', dtype=torch.float16) / (2 * c) ** 0.5,
+        torch.randn(2 * c, device='cuda', dtype=torch.float16),
+    )
 
 
 def lin_bias_relu_lin_add(c, s):
     x, other = activation(c, s), activation(c, s)
     weight_up, weight_down, bias = linear_weights(c)
-    return (lambda: LinBReLULinAdd(x, weight_up, weight_down, bias, other),
-            lambda: torch.addmm(flat(other), torch.addmm(bias, flat(x), weight_up).relu(), weight_down))
+    return (
+        lambda: LinBReLULinAdd(x, weight_up, weight_down, bias, other),
+        lambda: torch.addmm(flat(other), torch.addmm(bias, flat(x), weight_up).relu(), weight_down),
+    )
 
 
 def lin_bias_relu_lin_backward(c, s):
@@ -125,6 +132,7 @@ def lin_bias_relu_lin_backward(c, s):
         hidden = torch.addmm(bias, fx, weight_up)
         hidden_grad = (fg @ weight_down.T) * (hidden > 0)
         return hidden_grad @ weight_up.T, fx.T @ hidden_grad, hidden.relu().T @ fg, hidden_grad.sum(0)
+
     return lambda: LinBReLULinBackward(x, grad, weight_up, weight_down, bias), reference
 
 
@@ -134,13 +142,16 @@ def add_stats(c, s):
     def reference():
         r = x + y
         return r, *stats(r)
+
     return lambda: AddStats(x, y), reference
 
 
 def add_stats_backward(c, s):
     add_grad, r, mean_grad, sqmean_grad = activation(c, s), activation(c, s), vector(c), vector(c)
-    return (lambda: AddStatsBackward(add_grad, mean_grad, sqmean_grad, r),
-            lambda: (add_grad + stats_grad(r, mean_grad, sqmean_grad)).half())
+    return (
+        lambda: AddStatsBackward(add_grad, mean_grad, sqmean_grad, r),
+        lambda: (add_grad + stats_grad(r, mean_grad, sqmean_grad)).half(),
+    )
 
 
 def avgpool_stats(c, s):
@@ -149,6 +160,7 @@ def avgpool_stats(c, s):
     def reference():
         pooled = F.avg_pool3d(x, 2, ceil_mode=True)
         return pooled, *stats(pooled)
+
     return lambda: AvgPoolCeilStats(x), reference
 
 
@@ -160,6 +172,7 @@ def avgpool_stats_backward(c, s):
     def reference():
         grad = (pooled_grad + stats_grad(pooled, mean_grad, sqmean_grad)).half()
         return torch.ops.aten.avg_pool3d_backward(grad, x, [2] * 3, [2] * 3, [0] * 3, True, True, None)
+
     return lambda: AvgPoolCeilStatsBackward(pooled_grad, mean_grad, sqmean_grad, pooled, x.shape), reference
 
 
@@ -175,6 +188,7 @@ def bn_relu_backward(c, s):
     def reference():
         masked = grad * (x * weight + bias > 0)
         return (masked * weight).half(), (masked * x).sum(DIMS), masked.sum(DIMS)
+
     return lambda: ApplyBNReLUBackward(x, weight, bias, grad), reference
 
 
@@ -190,14 +204,18 @@ def stats_backward(c, s):
 
 def quant(c, s):
     x = activation(c, s)
-    return (lambda: QuantUint8Window(x, WINDOW),
-            lambda: ((x.float().clamp(-WINDOW, WINDOW) + WINDOW) * (255 / (2 * WINDOW))).to(torch.uint8))
+    return (
+        lambda: QuantUint8Window(x, WINDOW),
+        lambda: ((x.float().clamp(-WINDOW, WINDOW) + WINDOW) * (255 / (2 * WINDOW))).to(torch.uint8),
+    )
 
 
 def dequant(c, s):
     x = torch.randint(0, 256, (1, c, s, s, s), device='cuda', dtype=torch.uint8)
-    return (lambda: DequantUint8Window(x, torch.float16, WINDOW),
-            lambda: (x.float() * (2 * WINDOW / 255) - WINDOW).half())
+    return (
+        lambda: DequantUint8Window(x, torch.float16, WINDOW),
+        lambda: (x.float() * (2 * WINDOW / 255) - WINDOW).half(),
+    )
 
 
 # name: (op, channels, what the torch call is)
@@ -252,8 +270,10 @@ if __name__ == '__main__':
 
     torch.backends.cudnn.benchmark = True
     print(f'# kerops {__version__} on {torch.cuda.get_device_name()}\n')
-    print(f'torch {torch.__version__}, CUDA {torch.version.cuda}, cuDNN {torch.backends.cudnn.version()}, '
-          f'triton {triton.__version__}. Input (1, C, S, S, S), fp16, channels_last_3d; a cell is torch time over '
-          f'kerops time, medians of triton do_bench; — is an input over {2 * MAX_ELEMENTS / 2**30:.0f} GiB in fp16.')
+    print(
+        f'torch {torch.__version__}, CUDA {torch.version.cuda}, cuDNN {torch.backends.cudnn.version()}, '
+        f'triton {triton.__version__}. Input (1, C, S, S, S), fp16, channels_last_3d; a cell is torch time over '
+        f'kerops time, medians of triton do_bench; — is an input over {2 * MAX_ELEMENTS / 2**30:.0f} GiB in fp16.'
+    )
     for name in args.ops:
         print_table(name)

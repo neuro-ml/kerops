@@ -1,15 +1,14 @@
 import torch
 from triton import next_power_of_2
 
-from ..assets import ASSETS_ROOT
 from ...kernels.linear import _LinBReLULinBackward
-from ...settings import autotune, TableKernelConfig, ConfiguredFunction
+from ...settings import ConfiguredFunction, TableKernelConfig, autotune
 from ...utils import cdiv
-
+from ..assets import ASSETS_ROOT
 
 lin_bn_relu_lin_backward_config = TableKernelConfig(
     args_to_problem_sizes=lambda x, grad, weight_up, weight_down, bias: {'in_channels': x.shape[1]},
-    toml_path=ASSETS_ROOT / 'LinBReLULinBackward.toml'
+    toml_path=ASSETS_ROOT / 'LinBReLULinBackward.toml',
 )
 
 
@@ -91,8 +90,12 @@ def generate_inputs_lin_bn_relu_lin_backward(problem_sizes):
     else:
         base = 64
 
-    x = torch.randn(1, in_channels, base, base, base, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
-    grad = torch.randn(1, in_channels, base, base, base, device='cuda', dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    x = torch.randn(1, in_channels, base, base, base, device='cuda', dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
+    grad = torch.randn(1, in_channels, base, base, base, device='cuda', dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
     weight_up = torch.randn(in_channels, 2 * in_channels, device='cuda', dtype=torch.float16)
     weight_down = torch.randn(2 * in_channels, in_channels, device='cuda', dtype=torch.float16)
     bias = torch.randn(2 * in_channels, device='cuda', dtype=torch.float16)
@@ -113,5 +116,5 @@ def autotune_lin_bn_relu_lin_backward(toml_path, **autotune_kwargs):
         **autotune_kwargs,
         num_warps=[1, 2, 4, 8],
         D_BLOCK=[16, 32, 64],
-        ILP=[1, 2, 3, 4, 8, 16]
+        ILP=[1, 2, 3, 4, 8, 16],
     )

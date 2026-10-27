@@ -1,15 +1,13 @@
 import torch
 from triton import language as tl, next_power_of_2
 
-from ..assets import ASSETS_ROOT
 from ...kernels.dw_conv import _DWConv_wgrad_cl3d_impl
-from ...settings import autotune, TableKernelConfig, ConfiguredFunction
+from ...settings import ConfiguredFunction, TableKernelConfig, autotune
 from ...utils import cdiv
-
+from ..assets import ASSETS_ROOT
 
 dwconv_wgrad_config = TableKernelConfig(
-    args_to_problem_sizes=lambda x, grad: {'channels': x.shape[1]},
-    toml_path=ASSETS_ROOT / 'DWConvWGRAD.toml'
+    args_to_problem_sizes=lambda x, grad: {'channels': x.shape[1]}, toml_path=ASSETS_ROOT / 'DWConvWGRAD.toml'
 )
 
 
@@ -25,7 +23,7 @@ def DWConvWGRAD(x, grad, /, *, num_warps, D_BLOCK, ILP):
     assert channels == next_power_of_2(channels)
     assert D_BLOCK == next_power_of_2(D_BLOCK)
 
-    ACCTYPE =tl.float32
+    ACCTYPE = tl.float32
     bsize, _, H, W, D = x.shape
     batch_stride, _, H_stride, W_stride, _ = x.stride()
 
@@ -72,8 +70,12 @@ def generate_inputs_dwconv_wgrad(problem_sizes, device='cuda'):
     else:
         base = 128
 
-    x = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
-    grad = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
+    x = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
+    grad = torch.randn(1, channels, base, base, base, device=device, dtype=torch.float16).to(
+        memory_format=torch.channels_last_3d
+    )
 
     return x, grad
 
@@ -93,7 +95,7 @@ def pruning_rule(problem_size, named_config):
 
 
 def autotune_dwconv_wgrad(toml_path, **autotune_kwargs):
-    problem_sizes = [{'channels': channels} for channels in [2 ** i for i in range(3, 8)]]
+    problem_sizes = [{'channels': channels} for channels in [2**i for i in range(3, 8)]]
 
     autotune(
         getattr(DWConvWGRAD, 'function', DWConvWGRAD),
@@ -104,5 +106,5 @@ def autotune_dwconv_wgrad(toml_path, **autotune_kwargs):
         **autotune_kwargs,
         num_warps=[1, 2, 4],
         D_BLOCK=[8, 16, 32, 64],
-        ILP=[1, 2, 3, 4]
+        ILP=[1, 2, 3, 4],
     )
