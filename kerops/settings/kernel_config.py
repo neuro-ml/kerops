@@ -6,6 +6,9 @@ from typing import Any, Callable
 
 from .utils import get_device_name_from_args
 
+# The GPU whose configs a GPU missing from a table takes; None leaves such a GPU unconfigured.
+FALLBACK_DEVICE = os.environ.get('KEROPS_FALLBACK_DEVICE')
+
 
 class TableKernelConfig:
     def __init__(
@@ -82,10 +85,10 @@ class TableKernelConfig:
         return tuple(problem_sizes[name] for name in self.problem_size_names)
 
     def device_configs(self, device: str) -> dict[tuple, dict[str, Any]]:
-        """Configs of `device`, else of the GPU named by $KEROPS_FALLBACK_DEVICE; empty if the TOML has neither."""
+        """Configs of `device`, else of FALLBACK_DEVICE; empty if the TOML has neither."""
         if device in self._configs:
             return self._configs[device]
-        return self._configs.get(os.environ.get('KEROPS_FALLBACK_DEVICE'), {})
+        return self._configs.get(FALLBACK_DEVICE, {})
 
     def __call__(self, *input_args) -> dict[str, Any]:
         device = get_device_name_from_args(*input_args)

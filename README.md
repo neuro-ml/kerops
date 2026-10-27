@@ -45,5 +45,5 @@ op(*tensors, **overrides) ──▶ ConfiguredFunction ◀── TableKernelConf
 - At import, the TOML params must equal the op's keyword-only arguments, and the keys returned by
   `args_to_problem_sizes` must equal the TOML's `problem_size_names`.
 - A GPU missing from a table raises an error; `python scripts/autotune.py <target>` (e.g. `conv`) on that GPU
-  adds it and keeps the others. Or `KEROPS_FALLBACK_DEVICE='NVIDIA GeForce RTX 4090'` makes it take the configs of
-  that GPU: they run, not necessarily at its best speed.
+  adds it and keeps the others. Or `KEROPS_FALLBACK_DEVICE='NVIDIA GeForce RTX 4090'`, set before kerops is
+  imported, makes it take the configs of that GPU: they run, not necessarily at its best speed.
