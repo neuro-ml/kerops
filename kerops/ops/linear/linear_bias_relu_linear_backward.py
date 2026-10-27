@@ -111,7 +111,7 @@ def autotune_lin_bn_relu_lin_backward(toml_path, **autotune_kwargs):
         pruning_rule,
         toml_path,
         **autotune_kwargs,
-        num_warps=[1, 2, 4],
+        num_warps=[1, 2, 4, 8],
         D_BLOCK=[16, 32, 64],
-        ILP=[1, 2, 3, 4]
+        ILP=[1, 2, 3, 4, 8, 16]
     )
