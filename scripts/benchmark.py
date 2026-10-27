@@ -223,22 +223,26 @@ OPS = {
 }
 
 
+def speedup(op, channels, counts, size):
+    """Cell of the table: torch time over kerops time, or a dash for inputs past MAX_ELEMENTS."""
+    if max(counts) * size**3 > MAX_ELEMENTS:
+        return '—'
+    kerops, reference = op(channels, size)
+    torch_ms, kerops_ms = (do_bench(f, warmup=25, rep=100, return_mode='median') for f in (reference, kerops))
+    del kerops, reference
+    torch.cuda.empty_cache()
+    return f'{torch_ms / kerops_ms:.2f}x'
+
+
 def print_table(name):
     op, channels_list, reference_name = OPS[name]
-    print(f'\n## {name} against {reference_name}\n')
-    print('| channels | size | torch, ms | kerops, ms | speedup |')
-    print('|:--------:|:----:|----------:|-----------:|--------:|')
+    print(f'\n## {name}: speedup over {reference_name}\n')
+    print('| channels | ' + ' | '.join(f'{size}³' for size in SIZES) + ' |')
+    print('|:--------:|' + '------:|' * len(SIZES))
     for channels in channels_list:
         counts = channels if isinstance(channels, tuple) else (channels,)
-        label = ' → '.join(map(str, counts))
-        for size in SIZES:
-            if max(counts) * size**3 > MAX_ELEMENTS:
-                continue
-            kerops, reference = op(channels, size)
-            torch_ms, kerops_ms = (do_bench(f, warmup=25, rep=100, return_mode='median') for f in (reference, kerops))
-            print(f'| {label} | {size}³ | {torch_ms:.3f} | {kerops_ms:.3f} | {torch_ms / kerops_ms:.2f}x |', flush=True)
-            del kerops, reference
-            torch.cuda.empty_cache()
+        cells = [speedup(op, channels, counts, size) for size in SIZES]
+        print(f'| {" → ".join(map(str, counts))} | ' + ' | '.join(cells) + ' |', flush=True)
 
 
 if __name__ == '__main__':
@@ -249,6 +253,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
     print(f'# kerops {__version__} on {torch.cuda.get_device_name()}\n')
     print(f'torch {torch.__version__}, CUDA {torch.version.cuda}, cuDNN {torch.backends.cudnn.version()}, '
-          f'triton {triton.__version__}. Median of triton do_bench; input (1, C, S, S, S), fp16, channels_last_3d.')
+          f'triton {triton.__version__}. Input (1, C, S, S, S), fp16, channels_last_3d; a cell is torch time over '
+          f'kerops time, medians of triton do_bench; — is an input over {2 * MAX_ELEMENTS / 2**30:.0f} GiB in fp16.')
     for name in args.ops:
         print_table(name)
