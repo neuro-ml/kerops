@@ -33,7 +33,7 @@ def DWConvWGRAD(x, grad, /, *, num_warps, D_BLOCK, ILP):
     grid = (H_grid, W_grid, D_grid)
 
     grad_w = torch.zeros([bsize, H_grid * W_grid * D_grid, 3, 3, 3, channels], device=x.device, dtype=torch.float16)
-    WD_grid = W_grid * D_grid  # TODO: mb implement in another way
+    WD_grid = W_grid * D_grid
 
     for unbatched_x, unbatched_grad, unbatched_grad_w in zip(x, grad, grad_w):
         _DWConv_wgrad_cl3d_impl[grid](
