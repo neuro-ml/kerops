@@ -1,3 +1,4 @@
+import os
 import tomllib
 from inspect import signature as get_signature
 from pathlib import Path
@@ -80,18 +81,28 @@ class TableKernelConfig:
             )
         return tuple(problem_sizes[name] for name in self.problem_size_names)
 
+    def device_configs(self, device: str) -> dict[tuple, dict[str, Any]]:
+        """Configs of `device`, else of the GPU named by $KEROPS_FALLBACK_DEVICE; empty if the TOML has neither."""
+        if device in self._configs:
+            return self._configs[device]
+        return self._configs.get(os.environ.get('KEROPS_FALLBACK_DEVICE'), {})
+
     def __call__(self, *input_args) -> dict[str, Any]:
         device = get_device_name_from_args(*input_args)
 
         problem_sizes = self.problem_sizes(*input_args)
+        configs = self.device_configs(device)
 
-        if device not in self._configs:
-            raise RuntimeError(f'{self} is not configured for {device}')
+        if not configs:
+            raise RuntimeError(
+                f'{self} is not configured for {device}: tune it with scripts/autotune.py, or set '
+                f'KEROPS_FALLBACK_DEVICE to one of {list(self._configs)} to take its configs'
+            )
 
-        if problem_sizes not in self._configs[device]:
+        if problem_sizes not in configs:
             raise KeyError(f'No config for problem_sizes {problem_sizes} on device {device}')
 
-        return self._configs[device][problem_sizes]
+        return configs[problem_sizes]
 
     def can_be_configured(self, *input_args) -> bool:
         try:
@@ -99,7 +110,7 @@ class TableKernelConfig:
         except RuntimeError:
             return False
 
-        return self.problem_sizes(*input_args) in self._configs.get(device, {})
+        return self.problem_sizes(*input_args) in self.device_configs(device)
 
     def __repr__(self):
         input_s = ', '.join(self.arg_names)

@@ -69,6 +69,21 @@ def test_untuned_device(configured, monkeypatch):
         configured(torch.zeros(16), 2)
 
 
+def test_untuned_device_takes_fallback_configs(configured, monkeypatch):
+    on_device(monkeypatch, 'GPU B')
+    monkeypatch.setenv('KEROPS_FALLBACK_DEVICE', 'GPU A')
+    assert configured.can_be_configured(torch.zeros(16), 2)
+    assert configured(torch.zeros(16), 2) == (32, 4)
+
+
+def test_fallback_to_untuned_device(configured, monkeypatch):
+    on_device(monkeypatch, 'GPU B')
+    monkeypatch.setenv('KEROPS_FALLBACK_DEVICE', 'GPU C')
+    assert not configured.can_be_configured(torch.zeros(16), 2)
+    with pytest.raises(RuntimeError):
+        configured(torch.zeros(16), 2)
+
+
 def test_cpu_args_cannot_be_configured(tmp_path):
     assert not ConfiguredFunction(launch_params, make_table(tmp_path)).can_be_configured(torch.zeros(16), 2)
 
