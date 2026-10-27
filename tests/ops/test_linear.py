@@ -9,38 +9,45 @@ from kerops.ops.linear import LinBReLULinAdd, LinBReLULinBackward, ReLULinearAdd
 from kerops.utils import allclose_two_stage, weight_grad_similarity
 
 
+# Error budget of the forward linear ops (fp16 intermediates), relative to the output std of an fp32 reference.
+LINEAR_MAX_ERROR = 5e-3
+LINEAR_MEAN_ERROR = 4e-4
+
+
+def conv1x1(x, weight, bias=None):
+    return F.conv3d(x, weight.permute(1, 0)[:, :, None, None, None], bias)
+
+
+def assert_linear_within_budget(out, reference):
+    error = (out.float() - reference).abs() / reference.std()
+    message = f'max {error.max():.1e}, mean {error.mean():.1e}'
+    assert error.max() <= LINEAR_MAX_ERROR and error.mean() <= LINEAR_MEAN_ERROR, message
+
+
 def test_relu_linear_add(bsize, other_1, other_2, other_3, channels_out):
     torch.manual_seed(322)
-    x = torch.randn(bsize, 32, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+    x = torch.randn(bsize, 2 * channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
         memory_format=torch.channels_last_3d
     )
     other = torch.randn(bsize, channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
         memory_format=torch.channels_last_3d
     )
-    weight = torch.empty(32, channels_out, device='cuda', dtype=torch.float16)
+    weight = torch.empty(2 * channels_out, channels_out, device='cuda', dtype=torch.float16)
     nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
 
-    out_2 = ReLULinearAdd(x, weight, other)
-
-    with torch.inference_mode():
-        out_1 = F.conv3d(
-            F.relu(x), weight.permute(1, 0)[:, :, None, None, None], None, stride=(1, 1, 1), padding=(0, 0, 0)
-        )
-        out_1 += other
-
-    assert allclose_two_stage(
-        out_1, out_2, atol_strict=1e-4, rtol_strict=1e-4, rtol_narrow=1e-3, atol_narrow=1e-3, debug_info='print'
-    )
+    with torch.backends.cudnn.flags(enabled=True, allow_tf32=False):
+        reference = conv1x1(F.relu(x).float(), weight.float()) + other.float()
+    assert_linear_within_budget(ReLULinearAdd(x, weight, other), reference)
 
 
 def test_relu_linear_add_backward(bsize, other_1, other_2, other_3, channels_out):
     torch.manual_seed(322)
-    x = torch.randn(bsize, 32, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+    x = torch.randn(bsize, 2 * channels_out, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
         memory_format=torch.channels_last_3d
     )
     x.requires_grad_(True)
 
-    weight_x = torch.empty(32, channels_out, device='cuda', dtype=torch.float32)
+    weight_x = torch.empty(2 * channels_out, channels_out, device='cuda', dtype=torch.float32)
     nn.init.kaiming_uniform_(weight_x, a=math.sqrt(5))
     weight_x.requires_grad_(True)
 
@@ -98,25 +105,13 @@ def test_linbrelulinadd(bsize, channels, other_1, other_2, other_3):
 
     bias = torch.randn(2 * channels, dtype=torch.float32, device='cuda')
 
-    out = LinBReLULinAdd(
-        x, weight_up.to(torch.float16), weight_down.to(torch.float16), bias.to(torch.float16), add_other
-    )
+    weight_up, weight_down, bias = weight_up.half(), weight_down.half(), bias.half()
+    out = LinBReLULinAdd(x, weight_up, weight_down, bias, add_other)
 
-    with torch.amp.autocast('cuda'), torch.inference_mode():
-        out_base = F.conv3d(x, weight_up.permute(1, 0)[:, :, None, None, None], bias)
-        out_base = F.relu(out_base)
-        out_base = F.conv3d(out_base, weight_down.permute(1, 0)[:, :, None, None, None], None)
-        out_base += add_other
-
-    assert allclose_two_stage(
-        out_base,
-        out,
-        rtol_strict=1e-4,
-        atol_strict=5e-4,
-        rtol_narrow=1e-3,
-        atol_narrow=1e-3,
-        debug_info='print',
-    )
+    with torch.backends.cudnn.flags(enabled=True, allow_tf32=False):
+        hidden = conv1x1(x.float(), weight_up.float(), bias.float()).relu()
+        reference = conv1x1(hidden, weight_down.float()) + add_other.float()
+    assert_linear_within_budget(out, reference)
 
 
 def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
