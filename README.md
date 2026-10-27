@@ -23,9 +23,9 @@ of squares over N, H, W, D in fp32. Ops are in `kerops.ops`.
 | `quantization.QuantUint8Window(x, window)` | `((x.clamp(-window, window) + window) / (2 * window) * 255).to(torch.uint8)` | `quantization.DequantUint8Window(q, dtype, window)`: `x` back |
 
 # How fast is it?
-Launch parameters are tuned for the NVIDIA RTX 4090. `python scripts/benchmark.py [ops...]` times every op against the
-torch code it replaces and prints, under the GPU and the kerops version, a table per op: channels by input size, the
-speedup in each cell.
+Launch parameters are tuned for the NVIDIA RTX 4090; [BENCHMARK.md](BENCHMARK.md) has the speedup of every op over the
+torch code it replaces, by channels and input size. `python scripts/benchmark.py > BENCHMARK.md` regenerates it on the
+local GPU.
 
 # How ops are configured
 Every op is a `ConfiguredFunction`: tensors are positional-only arguments, kernel launch parameters are keyword-only.
