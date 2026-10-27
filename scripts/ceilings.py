@@ -1,15 +1,33 @@
 """Measures the GPU's tensor-core and memory ceilings and the lower bound they give each Conv3d problem size."""
 import re
+import threading
 
 import torch
 import triton
 from triton import language as tl
+from triton.testing import do_bench
 
-from bench_conv3d import bench_with_clock, spatial_size
-from kerops.ops.conv.conv import channel_pairs
+from kerops.ops.conv.conv import channel_pairs, tuning_size
 
 MMA_BLOCK_M, MMA_BLOCK_N, MMA_BLOCK_K = 128, 128, 64
 MMA_ITERATIONS = 4096
+
+
+def bench_with_clock(fn) -> tuple[float, float]:
+    """Median ms of `fn` and the median SM clock in MHz sampled while it runs."""
+    clocks = []
+    done = threading.Event()
+
+    def sample_clock():
+        while not done.wait(0.01):
+            clocks.append(torch.cuda.clock_rate())
+
+    sampler = threading.Thread(target=sample_clock)
+    sampler.start()
+    ms = do_bench(fn, warmup=50, rep=300, return_mode='median')
+    done.set()
+    sampler.join()
+    return ms, sorted(clocks)[len(clocks) // 2]
 
 
 @triton.jit
@@ -67,7 +85,7 @@ def main():
     print('lower bounds, ms: compute at fp32 / fp16 acc ceiling, memory (read input + weights, write output once)')
     for pair in channel_pairs():
         in_channels, out_channels = pair['in_channels'], pair['out_channels']
-        size = spatial_size(in_channels, out_channels)
+        size = tuning_size(in_channels, out_channels)
         flop = 2 * size**3 * 27 * in_channels * out_channels
         bytes_moved = 2 * (size**3 * (in_channels + out_channels) + 27 * in_channels * out_channels)
         print(

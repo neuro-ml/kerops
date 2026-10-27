@@ -60,10 +60,15 @@ def Conv3d(
     return output
 
 
+def tuning_size(in_channels, out_channels):
+    """Spatial size of the inputs Conv3d and Conv3dWgrad are tuned on."""
+    channels = max(in_channels, out_channels)
+    return 256 if channels <= 32 else 192 if channels <= 64 else 128
+
+
 def generate_inputs_conv(problem_sizes, device='cuda'):
     in_channels, out_channels = problem_sizes['in_channels'], problem_sizes['out_channels']
-    channels = max(in_channels, out_channels)
-    size = 256 if channels <= 32 else 192 if channels <= 64 else 128
+    size = tuning_size(in_channels, out_channels)
 
     x = torch.randn(1, in_channels, size, size, size, device=device, dtype=torch.float16).to(memory_format=torch.channels_last_3d)
     w = torch.randn(3, 3, 3, in_channels, out_channels, device=device, dtype=torch.float16) / (27 * in_channels) ** 0.5
