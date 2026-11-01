@@ -6,6 +6,28 @@ def assert_same_shape(result, reference):
     assert result.shape == reference.shape, f'shape {list(result.shape)} != reference {list(reference.shape)}'
 
 
+def small_integers(*shape, magnitude=2, dtype=torch.float16):
+    """Uniform integers from -magnitude to magnitude on CUDA: sums of their products are exact while they stay small."""
+    return torch.randint(-magnitude, magnitude + 1, shape, device='cuda', dtype=dtype)
+
+
+def sparse_signs(*shape, sum_length):
+    """fp16 ±1 at so few positions that a sum of products of two such over `sum_length` positions spreads by about 250,
+    within the integers fp16 holds, 0 elsewhere."""
+    signs = torch.randint(0, 2, shape, device='cuda', dtype=torch.float16) * 2 - 1
+    return signs * (torch.rand(shape, device='cuda') < 250 / sum_length**0.5)
+
+
+@torch.no_grad()
+def assert_exact(result, reference):
+    """Raises unless `result` equals the float64 `reference`, which inputs of small integers keep exact in the dtype of
+    `result`; a reference that dtype cannot hold means the test's inputs are too large."""
+    assert_same_shape(result, reference)
+    held = reference.to(result.dtype).double()
+    assert torch.equal(held, reference), f'the reference is not exact in {result.dtype}: the test inputs are too large'
+    torch.testing.assert_close(result.double(), reference, rtol=0, atol=0)
+
+
 @torch.no_grad()
 def assert_close(result, reference, max_error, mean_error):
     """Raises unless the error of `result` past one step of its dtype, in units of the reference's RMS, is at most

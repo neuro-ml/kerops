@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from kerops.ops.linear import LinBReLULinAdd, LinBReLULinBackward, ReLULinearAdd, ReLULinearBackward
-from kerops.utils import assert_close, assert_wgrad_close
+from kerops.utils import assert_close, assert_exact, assert_wgrad_close, small_integers
 
 
 def conv1x1(x, weight, bias=None):
@@ -109,3 +109,69 @@ def test_linbrelulin_backward(bsize, channels, other_1, other_2, other_3):
     assert_wgrad_close(weight_up_grad, weight_up_fp32.grad, cos_error=2e-6, norm_error=3e-4)
     assert_wgrad_close(weight_down_grad, weight_down_fp32.grad, cos_error=2e-7, norm_error=5e-4)
     assert_wgrad_close(bias_grad, bias_fp32.grad, cos_error=2e-6, norm_error=2e-3)
+
+
+def channels_last_integers(bsize, channels, sides, magnitude=2):
+    return small_integers(bsize, channels, *sides, magnitude=magnitude).to(memory_format=torch.channels_last_3d)
+
+
+def test_relu_linear_add_exact(channels_out, exact_shape):
+    bsize, *sides = exact_shape
+    torch.manual_seed(322)
+    x, other = channels_last_integers(bsize, 2 * channels_out, sides), channels_last_integers(
+        bsize, channels_out, sides
+    )
+    weight = small_integers(2 * channels_out, channels_out)
+
+    reference = conv1x1(F.relu(x.double()), weight.double()) + other.double()
+    assert_exact(ReLULinearAdd(x, weight, other), reference)
+
+
+def test_relu_linear_add_backward_exact(channels_out, exact_shape):
+    bsize, *sides = exact_shape
+    torch.manual_seed(322)
+    x, grad = channels_last_integers(bsize, 2 * channels_out, sides), channels_last_integers(bsize, channels_out, sides)
+    weight = small_integers(2 * channels_out, channels_out)
+
+    x_grad, weight_grad = ReLULinearBackward(x, grad, weight)
+
+    x_fp64, weight_fp64 = x.double().requires_grad_(), weight.double().requires_grad_()
+    conv1x1(F.relu(x_fp64), weight_fp64).backward(grad.double())
+    assert_exact(x_grad, x_fp64.grad)
+    assert_exact(weight_grad, weight_fp64.grad)
+
+
+@pytest.mark.parametrize('channels', [16, 32, 64])
+def test_linbrelulinadd_exact(channels, exact_shape):
+    bsize, *sides = exact_shape
+    torch.manual_seed(322)
+    x, other = channels_last_integers(bsize, channels, sides), channels_last_integers(bsize, channels, sides)
+    weight_up, weight_down = small_integers(channels, 2 * channels), small_integers(2 * channels, channels)
+    bias = small_integers(2 * channels)
+
+    hidden = conv1x1(x.double(), weight_up.double(), bias.double()).relu()
+    reference = conv1x1(hidden, weight_down.double()) + other.double()
+    assert_exact(LinBReLULinAdd(x, weight_up, weight_down, bias, other), reference)
+
+
+# Integers of magnitude 1: the op sums the weight gradients of its programs in fp16, which holds integers up to 2048.
+@pytest.mark.parametrize('channels', [16, 32])
+def test_linbrelulin_backward_exact(channels, exact_shape):
+    bsize, *sides = exact_shape
+    torch.manual_seed(322)
+    x, grad = channels_last_integers(bsize, channels, sides, 1), channels_last_integers(bsize, channels, sides, 1)
+    weight_up, weight_down = small_integers(channels, 2 * channels, magnitude=1), small_integers(
+        2 * channels, channels, magnitude=1
+    )
+    bias = small_integers(2 * channels, magnitude=1)
+
+    x_grad, weight_up_grad, weight_down_grad, bias_grad = LinBReLULinBackward(x, grad, weight_up, weight_down, bias)
+
+    x_fp64, weight_up_fp64, weight_down_fp64, bias_fp64 = (
+        tensor.double().requires_grad_() for tensor in (x, weight_up, weight_down, bias)
+    )
+    conv1x1(conv1x1(x_fp64, weight_up_fp64, bias_fp64).relu(), weight_down_fp64).backward(grad.double())
+    assert_exact(x_grad, x_fp64.grad)
+    assert_exact(weight_up_grad, weight_up_fp64.grad)
+    assert_exact(weight_down_grad, weight_down_fp64.grad)
+    assert_exact(bias_grad, bias_fp64.grad)

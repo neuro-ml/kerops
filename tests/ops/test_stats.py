@@ -1,7 +1,7 @@
 import torch
 
 from kerops.ops.stats import Stats, StatsBackward
-from kerops.utils import assert_close
+from kerops.utils import assert_close, assert_exact, small_integers
 
 DIMS = (0, 2, 3, 4)
 
@@ -33,3 +33,30 @@ def test_stats_backward(bsize, channels, other_1, other_2, other_3):
     x_fp32 = x.float().requires_grad_()
     ((x_fp32.mean(DIMS) * mean_grad).sum() + (x_fp32.square().mean(DIMS) * sqmean_grad).sum()).backward()
     assert_close(grad, x_fp32.grad, max_error=1e-5, mean_error=1e-7)
+
+
+def test_stats_exact(channels, power_of_2_shape):
+    bsize, *sides = power_of_2_shape
+    torch.manual_seed(322)
+    x = small_integers(bsize, channels, *sides).to(memory_format=torch.channels_last_3d)
+
+    mean, sqmean = Stats(x)
+
+    assert_exact(mean, x.double().mean(DIMS))
+    assert_exact(sqmean, x.double().square().mean(DIMS))
+
+
+def test_stats_backward_exact(channels, power_of_2_shape):
+    bsize, *sides = power_of_2_shape
+    torch.manual_seed(322)
+    x = small_integers(bsize, channels, *sides).to(memory_format=torch.channels_last_3d)
+    # Multiples of the voxel count, so that the gradient is of integers.
+    voxels = x.numel() // channels
+    mean_grad = small_integers(channels, dtype=torch.float32) * voxels
+    sqmean_grad = small_integers(channels, dtype=torch.float32) * voxels / 2
+
+    grad = StatsBackward(x, mean_grad, sqmean_grad)
+
+    x_fp64 = x.double().requires_grad_()
+    ((x_fp64.mean(DIMS) * mean_grad).sum() + (x_fp64.square().mean(DIMS) * sqmean_grad).sum()).backward()
+    assert_exact(grad, x_fp64.grad)
