@@ -46,7 +46,7 @@ def _ReLULinearAdd(
 
 
 @triton.jit
-def _ReLULinearAddBackward(
+def _ReLULinearBackward(
     input_ptr,
     grad_ptr,
     input_grad_ptr,

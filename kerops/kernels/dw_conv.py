@@ -30,8 +30,8 @@ def _DWConv_cl3d_impl(
 
     offset = d_offset[:, None, None] * channels + channels_offset[None, None, :] + near_offset[None, :, None] * channels
     mask = d_offset[:, None, None] + near_offset[None, :, None] < D - D_block * D_cell
-    mask = mask and (d_offset[:, None, None] + near_offset[None, :, None] >= 0 - D_block * D_cell)
-    mask = mask and (near_offset[None, :, None] != 2)
+    mask = mask & (d_offset[:, None, None] + near_offset[None, :, None] >= 0 - D_block * D_cell)
+    mask = mask & (near_offset[None, :, None] != 2)
 
     weight_offset = channels_offset[None, None, :] + tl.arange(0, 4)[None, :, None] * channels
     weight_mask = tl.arange(0, 4)[None, :, None] != 3
@@ -64,7 +64,7 @@ def _DWConv_cl3d_impl(
     load_next = (2 * H_cell + i < H and 2 * H_cell + i >= 0) and (2 * W_cell + j < W and 2 * W_cell + j >= 0)
     tmp_input_ptr = input_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride
 
-    x = tl.load(tmp_input_ptr + offset, mask=(load_all or load_next) and mask)
+    x = tl.load(tmp_input_ptr + offset, mask=(load_all or load_next) & mask)
 
     for k in tl.static_range(0, 16):
         if k == 0:
@@ -127,19 +127,19 @@ def _DWConv_cl3d_impl(
         load_next = (2 * H_cell + i < H and 2 * H_cell + i >= 0) and (2 * W_cell + j < W and 2 * W_cell + j >= 0)
         tmp_input_ptr = input_ptr + (2 * H_cell + i) * H_stride + (2 * W_cell + j) * W_stride
 
-        x = tl.load(tmp_input_ptr + offset, mask=(load_all or load_next) and mask)
+        x = tl.load(tmp_input_ptr + offset, mask=(load_all or load_next) & mask)
 
     tmp_output_ptr = output_ptr + (2 * H_cell) * H_stride + (2 * W_cell) * W_stride
     tl.store(tmp_output_ptr + out_offset, h0_w0, mask=out_mask)
 
     tmp_output_ptr = output_ptr + (2 * H_cell) * H_stride + (2 * W_cell + 1) * W_stride
-    tl.store(tmp_output_ptr + out_offset, h0_w1, mask=out_mask and W1_store)
+    tl.store(tmp_output_ptr + out_offset, h0_w1, mask=out_mask & W1_store)
 
     tmp_output_ptr = output_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell) * W_stride
-    tl.store(tmp_output_ptr + out_offset, h1_w0, mask=out_mask and H1_store)
+    tl.store(tmp_output_ptr + out_offset, h1_w0, mask=out_mask & H1_store)
 
     tmp_output_ptr = output_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell + 1) * W_stride
-    tl.store(tmp_output_ptr + out_offset, h1_w1, mask=out_mask and (H1_store and W1_store))
+    tl.store(tmp_output_ptr + out_offset, h1_w1, mask=out_mask & (H1_store and W1_store))
 
 
 # TODO: single kernel for both grad_X and grad_W
@@ -176,8 +176,8 @@ def _DWConv_wgrad_cl3d_impl(
 
     offset = d_offset[None, None, :] * channels + channels_offset[None, :, None] + near_offset[:, None, None] * channels
     mask = d_offset[None, None, :] + near_offset[:, None, None] < D - D_block * D_cell
-    mask = mask and (d_offset[None, None, :] + near_offset[:, None, None] >= 0 - D_block * D_cell)
-    mask = mask and (near_offset[:, None, None] != 2)
+    mask = mask & (d_offset[None, None, :] + near_offset[:, None, None] >= 0 - D_block * D_cell)
+    mask = mask & (near_offset[:, None, None] != 2)
 
     grad_offset = d_offset[None, :] * channels + channels_offset[:, None]
     grad_mask = d_offset[None, :] < D - D_block * D_cell
@@ -201,16 +201,16 @@ def _DWConv_wgrad_cl3d_impl(
         W1_load = 2 * W_cell + 1 < W
 
         tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + 2 * W_cell * W_stride
-        x_h0_w0 = tl.load(tmp_input_ptr + offset, mask=mask and H0_load)
+        x_h0_w0 = tl.load(tmp_input_ptr + offset, mask=mask & H0_load)
 
         tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + 2 * W_cell * W_stride
-        x_h1_w0 = tl.load(tmp_input_ptr + offset, mask=mask and H1_load)
+        x_h1_w0 = tl.load(tmp_input_ptr + offset, mask=mask & H1_load)
 
         tmp_input_ptr = input_ptr + 2 * H_cell * H_stride + (2 * W_cell + 1) * W_stride
-        x_h0_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H0_load))
+        x_h0_w1 = tl.load(tmp_input_ptr + offset, mask=mask & (W1_load & H0_load))
 
         tmp_input_ptr = input_ptr + (2 * H_cell + 1) * H_stride + (2 * W_cell + 1) * W_stride
-        x_h1_w1 = tl.load(tmp_input_ptr + offset, mask=mask and (W1_load and H1_load))
+        x_h1_w1 = tl.load(tmp_input_ptr + offset, mask=mask & (W1_load & H1_load))
 
         for k in tl.static_range(0, 16):
             i = (k % 4) - 1

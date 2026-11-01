@@ -1,15 +1,16 @@
 from functools import reduce
-from math import ceil, floor, log2
+from math import floor, log2
 
 import torch
 from triton import next_power_of_2
 
 from ..kernels.addition import _AddStats_cl3d_backward_impl, _AddStats_cl3d_impl
-from ..settings import ConfigurableArg, configure, get_l1_cache
+from ..settings import ConfiguredFunction
+from ..utils import cdiv
 
 
-@configure(l1_cache_bytes=get_l1_cache, num_warps=8)
-def AddStats(x, y, inplace=False, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg):
+@ConfiguredFunction.configure()
+def AddStats(x, y, inplace=False, /, *, l1_cache_bytes=65536, num_warps=8):
     num_channels = x.shape[1]
     numel = x.numel()
     assert x.shape == y.shape
@@ -24,7 +25,7 @@ def AddStats(x, y, inplace=False, *, l1_cache_bytes: ConfigurableArg, num_warps:
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
     BLOCK_SIZE = num_channels * other
-    grid_size = ceil(numel / BLOCK_SIZE)
+    grid_size = cdiv(numel, BLOCK_SIZE)
 
     if inplace:
         output = x
@@ -49,10 +50,8 @@ def AddStats(x, y, inplace=False, *, l1_cache_bytes: ConfigurableArg, num_warps:
     return output, mean, sqmean
 
 
-@configure(l1_cache_bytes=get_l1_cache, num_warps=8)
-def AddStatsBackward(
-    add_grad, mean_grad, sqmean_grad, add_result, *, l1_cache_bytes: ConfigurableArg, num_warps: ConfigurableArg
-):
+@ConfiguredFunction.configure()
+def AddStatsBackward(add_grad, mean_grad, sqmean_grad, add_result, /, *, l1_cache_bytes=65536, num_warps=8):
     num_channels = add_grad.shape[1]
     numel = add_grad.numel()
     assert add_result.shape == add_grad.shape
@@ -68,7 +67,7 @@ def AddStatsBackward(
     other = min(MAX_SIZE // num_channels, numel_no_channels)
     other = int(2 ** (floor(log2(other))))
     BLOCK_SIZE = num_channels * other
-    grid_size = ceil(numel / BLOCK_SIZE)
+    grid_size = cdiv(numel, BLOCK_SIZE)
 
     output_grad = torch.empty_like(add_grad)
 

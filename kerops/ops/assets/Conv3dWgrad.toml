@@ -1,0 +1,183 @@
+[meta]
+problem_size_names = ['in_channels', 'out_channels']
+
+["NVIDIA GeForce RTX 4090"]
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [16, 16]
+  P_BLOCK = 16
+  Q_BLOCK = 16
+  TH = 1
+  TW = 4
+  TD = 16
+  GH = 3
+  GW = 3
+  WINOGRAD = false
+  NUM_STAGES = 1
+  WARPS_M = 1
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 512
+  P_VEC = 8
+  Q_VEC = 4
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [16, 32]
+  P_BLOCK = 16
+  Q_BLOCK = 32
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 1
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
+  P_VEC = 4
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 16]
+  P_BLOCK = 16
+  Q_BLOCK = 32
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 1
+  WARPS_N = 2
+  SWAP = true
+  PROGRAMS = 256
+  P_VEC = 4
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 32]
+  P_BLOCK = 32
+  Q_BLOCK = 32
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 1
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
+  P_VEC = 4
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [32, 64]
+  P_BLOCK = 32
+  Q_BLOCK = 64
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = false
+  PROGRAMS = 256
+  P_VEC = 4
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 32]
+  P_BLOCK = 32
+  Q_BLOCK = 64
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = true
+  PROGRAMS = 256
+  P_VEC = 4
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 64]
+  P_BLOCK = 32
+  Q_BLOCK = 64
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = false
+  PROGRAMS = 256
+  P_VEC = 8
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [64, 128]
+  P_BLOCK = 32
+  Q_BLOCK = 64
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = false
+  PROGRAMS = 256
+  P_VEC = 8
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [128, 64]
+  P_BLOCK = 32
+  Q_BLOCK = 64
+  TH = 1
+  TW = 4
+  TD = 32
+  GH = 1
+  GW = 3
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 4
+  SWAP = true
+  PROGRAMS = 256
+  P_VEC = 8
+  Q_VEC = 8
+
+  [["NVIDIA GeForce RTX 4090".configs]]
+  problem_sizes = [128, 128]
+  P_BLOCK = 64
+  Q_BLOCK = 64
+  TH = 1
+  TW = 2
+  TD = 32
+  GH = 1
+  GW = 1
+  WINOGRAD = true
+  NUM_STAGES = 2
+  WARPS_M = 2
+  WARPS_N = 2
+  SWAP = false
+  PROGRAMS = 256
+  P_VEC = 8
+  Q_VEC = 8

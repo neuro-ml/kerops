@@ -1,43 +1,21 @@
 import torch
-from torch import nn
 
-from kerops.ops.addition import AddStats
 from kerops.ops.bnrelu import ApplyBNReLU, ApplyBNReLUBackward
-from kerops.utils import allclose_two_stage
+from kerops.utils import assert_close, assert_exact, assert_wgrad_close, small_integers
 
 
 def test_apply_bn_relu(bsize, channels, other_1, other_2, other_3):
     torch.manual_seed(322)
-    x_def = torch.randn(bsize, channels, other_1, other_2, other_3, dtype=torch.float16, device='cuda')
-    x = x_def.to(memory_format=torch.channels_last_3d)
-    y_def = torch.randn(bsize, channels, other_1, other_2, other_3, dtype=torch.float16, device='cuda')
-    y = y_def.to(memory_format=torch.channels_last_3d)
+    x = torch.randn(bsize, channels, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
+        memory_format=torch.channels_last_3d
+    )
     weight = torch.randn(channels, device='cuda') + 0.5
     bias = torch.randn(channels, device='cuda') * 2
 
-    bn = nn.BatchNorm3d(channels, device='cuda')
-    bn.weight = nn.Parameter(weight)
-    bn.bias = nn.Parameter(bias)
-    z = x_def + y_def
+    out = ApplyBNReLU(x, weight, bias)
 
-    with torch.cuda.amp.autocast():
-        out = nn.functional.relu(bn(z))
-
-        sum, mean, sqmean = AddStats(x, y)
-        rvareps = torch.rsqrt(sqmean - mean**2 + 1e-5)
-        W = weight * rvareps
-        B = bias - mean * rvareps * weight
-        out_check = ApplyBNReLU(sum, W, B)
-    assert allclose_two_stage(
-        out,
-        out_check,
-        rtol_strict=1e-5,
-        atol_strict=1e-4,
-        percentile_strict=0.995,
-        rtol_narrow=1e-3,
-        atol_narrow=1e-3,
-        debug_info='print',
-    )
+    reference = torch.relu(x.float() * weight.view(1, -1, 1, 1, 1) + bias.view(1, -1, 1, 1, 1))
+    assert_close(out, reference, max_error=1e-5, mean_error=1e-7)
 
 
 def test_apply_bn_relu_backward(bsize, channels, other_1, other_2, other_3):
@@ -45,23 +23,41 @@ def test_apply_bn_relu_backward(bsize, channels, other_1, other_2, other_3):
     x = torch.randn(bsize, channels, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
         memory_format=torch.channels_last_3d
     )
-    weight = torch.randn(1, channels, 1, 1, 1, device='cuda', dtype=torch.float32) + 0.5
-    bias = torch.randn(1, channels, 1, 1, 1, device='cuda', dtype=torch.float32) * 2
+    weight = torch.randn(1, channels, 1, 1, 1, device='cuda') + 0.5
+    bias = torch.randn(1, channels, 1, 1, 1, device='cuda') * 2
+    out_grad = torch.randn_like(x) / 10
 
-    x.requires_grad_(True)
-    weight.requires_grad_(True)
-    bias.requires_grad_(True)
+    grad, weight_grad, bias_grad = ApplyBNReLUBackward(x, weight, bias, out_grad)
 
-    upstream_grad = torch.randn_like(x, dtype=torch.float16) / 10
+    x_fp32, weight, bias = x.float().requires_grad_(), weight.requires_grad_(), bias.requires_grad_()
+    torch.relu(x_fp32 * weight + bias).backward(out_grad.float())
+    assert_close(grad, x_fp32.grad, max_error=1e-5, mean_error=1e-7)
+    assert_wgrad_close(weight_grad, weight.grad, cos_error=1e-10, norm_error=5e-5)
+    assert_wgrad_close(bias_grad, bias.grad, cos_error=1e-10, norm_error=1e-5)
 
-    x_fp32 = x.to(torch.float32)
-    y_fp32 = nn.functional.relu(x_fp32 * weight + bias)
 
-    y_fp32.backward(upstream_grad)
+def test_apply_bn_relu_exact(channels, exact_shape):
+    bsize, *sides = exact_shape
+    torch.manual_seed(322)
+    x = small_integers(bsize, channels, *sides).to(memory_format=torch.channels_last_3d)
+    weight, bias = small_integers(channels, dtype=torch.float32), small_integers(channels, dtype=torch.float32)
 
-    outgrad, weight_grad, bias_grad = x.grad, weight.grad, bias.grad
+    reference = torch.relu(x.double() * weight.view(1, -1, 1, 1, 1) + bias.view(1, -1, 1, 1, 1))
+    assert_exact(ApplyBNReLU(x, weight, bias), reference)
 
-    outgrad_check, weight_grad_check, bias_grad_check = ApplyBNReLUBackward(x, weight, bias, upstream_grad)
-    assert torch.allclose(outgrad, outgrad_check, rtol=1e-5, atol=1e-4)
-    assert torch.allclose(weight_grad, weight_grad_check, rtol=1e-4, atol=1e-3)
-    assert torch.allclose(bias_grad, bias_grad_check, rtol=1e-4, atol=5e-4)
+
+def test_apply_bn_relu_backward_exact(channels, exact_shape):
+    bsize, *sides = exact_shape
+    torch.manual_seed(322)
+    x = small_integers(bsize, channels, *sides).to(memory_format=torch.channels_last_3d)
+    out_grad = small_integers(bsize, channels, *sides).to(memory_format=torch.channels_last_3d)
+    weight = small_integers(1, channels, 1, 1, 1, dtype=torch.float32)
+    bias = small_integers(1, channels, 1, 1, 1, dtype=torch.float32)
+
+    grad, weight_grad, bias_grad = ApplyBNReLUBackward(x, weight, bias, out_grad)
+
+    x_fp64, weight_fp64, bias_fp64 = (tensor.double().requires_grad_() for tensor in (x, weight, bias))
+    torch.relu(x_fp64 * weight_fp64 + bias_fp64).backward(out_grad.double())
+    assert_exact(grad, x_fp64.grad)
+    assert_exact(weight_grad, weight_fp64.grad)
+    assert_exact(bias_grad, bias_fp64.grad)

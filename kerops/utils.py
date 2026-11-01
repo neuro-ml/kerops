@@ -2,101 +2,69 @@ import torch
 from torch.nn import functional as F
 
 
-@torch.no_grad
-def allclose_two_stage(
-    input,
-    other,
-    rtol_strict=1e-4,
-    atol_strict=1e-4,
-    percentile_strict=0.99,
-    rtol_narrow=1e-3,
-    atol_narrow=1e-3,
-    debug_info=None,
-    precision=None,
-):
-    if isinstance(debug_info, str):
-        if debug_info == 'print':
-            debug_info = print
-        else:
-            raise ValueError(f'Unknown debug_info mode - {debug_info}')
-    elif debug_info is None:
-        debug_info = lambda x: None
+def assert_same_shape(result, reference):
+    assert result.shape == reference.shape, f'shape {list(result.shape)} != reference {list(reference.shape)}'
 
-    assert input.shape == other.shape
-    assert input.dtype == other.dtype
-    assert input.device == other.device
 
-    if precision is None:
-        precision = input.dtype
+def small_integers(*shape, magnitude=2, dtype=torch.float16):
+    """Uniform integers from -magnitude to magnitude on CUDA: sums of their products are exact while they stay small."""
+    return torch.randint(-magnitude, magnitude + 1, shape, device='cuda', dtype=dtype)
 
-    input = input.reshape(-1)
-    other = other.reshape(-1)
 
-    strict_map = torch.abs(input.to(precision) - other.to(precision)) < atol_strict + rtol_strict * torch.abs(
-        other.to(precision)
+def sparse_signs(*shape, sum_length):
+    """fp16 ±1 at so few positions that a sum of products of two such over `sum_length` positions spreads by about 250,
+    within the integers fp16 holds, 0 elsewhere."""
+    signs = torch.randint(0, 2, shape, device='cuda', dtype=torch.float16) * 2 - 1
+    return signs * (torch.rand(shape, device='cuda') < 250 / sum_length**0.5)
+
+
+@torch.no_grad()
+def assert_exact(result, reference):
+    """Raises unless `result` equals the float64 `reference`, which inputs of small integers keep exact in the dtype of
+    `result`; a reference that dtype cannot hold means the test's inputs are too large."""
+    assert_same_shape(result, reference)
+    held = reference.to(result.dtype).double()
+    assert torch.equal(held, reference), f'the reference is not exact in {result.dtype}: the test inputs are too large'
+    torch.testing.assert_close(result.double(), reference, rtol=0, atol=0)
+
+
+@torch.no_grad()
+def assert_close(result, reference, max_error, mean_error):
+    """Raises unless the error of `result` past one step of its dtype, in units of the reference's RMS, is at most
+    max_error everywhere and mean_error on average."""
+    assert_same_shape(result, reference)
+    step = torch.finfo(result.dtype).eps
+    result, reference = result.float(), reference.float()
+    # A zero reference has no scale: against it any error is infinitely large.
+    scale = reference.square().mean().sqrt().clamp_min(torch.finfo(torch.float32).tiny)
+    error = ((result - reference).abs() - step * reference.abs()).clamp_min(0) / scale
+    worst = tuple(index.item() for index in torch.unravel_index(error.argmax(), error.shape))
+    assert error.max() <= max_error, (
+        f'max error past one {step:.0e} step {error.max():.1e} of the reference RMS > {max_error:.1e}, '
+        f'at {worst}: {result[worst]:.6g} vs reference {reference[worst]:.6g}'
     )
+    assert (
+        error.mean() <= mean_error
+    ), f'mean error past one {step:.0e} step {error.mean():.1e} of the reference RMS > {mean_error:.1e}'
 
-    size = input.numel()
-    num_true = strict_map.sum().item()
 
-    ratio = num_true / size
-    more_less = '>=' if ratio >= percentile_strict else '<'
-    debug_info(f'strict stage - {size=}, {num_true=}, {ratio=} {more_less} percentile_strict')
-
-    if ratio >= percentile_strict:
-        debug_info('Strict threshold has been passed')
+@torch.no_grad()
+def assert_wgrad_close(result, reference, cos_error, norm_error):
+    """Raises unless 1 - cos(result, reference) <= cos_error and their norms differ by at most norm_error of the
+    reference's; a zero reference, which has no direction, needs a zero result."""
+    assert_same_shape(result, reference)
+    if not reference.any():
+        assert not result.any(), f'the reference is zero, the result has {result.count_nonzero()} nonzero values'
     else:
-        debug_info('Strict threshold has not been passed')
-
-    if size == num_true:
-        debug_info('Strict threshold has been passed completely, propose decreasing rtol_strict and atol_strict')
-        return True
-
-    if num_true / size > percentile_strict:
-        indices = torch.nonzero(~strict_map)
-
-        input = input[indices].to(precision)
-        other = other[indices].to(precision)
-
-        narrow_map = torch.abs(input - other) < atol_narrow + rtol_narrow * torch.abs(other)
-
-        if narrow_map.all():
-            debug_info('Soft threshold has been passed')
-            return True
-        else:
-            debug_info('Soft threshold has not been passed')
-
-    return False
+        result, reference = result.double().flatten(), reference.double().flatten()
+        cos = 1 - F.cosine_similarity(result, reference, dim=0).item()
+        norm = (result.norm() / reference.norm() - 1).abs().item()
+        assert cos <= cos_error, f'1 - cos {cos:.1e} > {cos_error:.1e}'
+        assert norm <= norm_error, f'norm differs by {norm:.1e} of the reference norm > {norm_error:.1e}'
 
 
-def weight_grad_similarity(input, other, rtol_cos=1e-4, atol_cos=1e-4, rtol_len=1e-3, atol_len=1e-3, debug_info=None):
-    if isinstance(debug_info, str):
-        if debug_info == 'print':
-            debug_info = print
-        else:
-            raise ValueError(f'Unknown debug_info mode - {debug_info}')
-    elif debug_info is None:
-        debug_info = lambda x: None
+def cdiv(a, b):
+    assert type(a) is int
+    assert type(b) is int
 
-    assert input.shape == other.shape
-    assert input.dtype == other.dtype
-    assert input.device == other.device
-
-    input_flat = input.reshape(-1)
-    other_flat = other.reshape(-1)
-
-    cos_sim = F.cosine_similarity(input_flat, other_flat, dim=0)
-
-    if not torch.allclose(torch.ones_like(cos_sim), cos_sim, rtol=rtol_cos, atol=atol_cos):
-        debug_info(f'Direction test failed - {cos_sim}')
-        return False
-
-    magnitudes_close = torch.allclose(torch.norm(input_flat), torch.norm(other_flat), rtol=rtol_len, atol=atol_len)
-
-    if not magnitudes_close:
-        debug_info(f'Magnitude test failed - {torch.norm(input_flat)=}, {torch.norm(other_flat)=}')
-        return False
-
-    debug_info('All stages passed')
-
-    return True
+    return (a + b - 1) // b
