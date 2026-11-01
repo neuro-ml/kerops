@@ -1,7 +1,9 @@
 import torch
 
 from kerops.ops.stats import Stats, StatsBackward
-from kerops.utils import allclose_two_stage
+from kerops.utils import assert_close
+
+DIMS = (0, 2, 3, 4)
 
 
 def test_stats(bsize, channels, other_1, other_2, other_3):
@@ -10,14 +12,10 @@ def test_stats(bsize, channels, other_1, other_2, other_3):
         memory_format=torch.channels_last_3d
     )
 
-    x_fp32 = x.to(torch.float32)
-    dim = (0, 2, 3, 4)
-    mean = x_fp32.mean(dim=dim)
-    sqmean = (x_fp32**2).mean(dim=dim)
-    mean_, sqmean_ = Stats(x)
+    mean, sqmean = Stats(x)
 
-    assert torch.allclose(mean, mean_, atol=1e-4, rtol=1e-4)
-    assert torch.allclose(sqmean, sqmean_, atol=1e-4, rtol=1e-4)
+    assert_close(mean, x.float().mean(DIMS), max_error=1e-5, mean_error=3e-6)
+    assert_close(sqmean, x.float().square().mean(DIMS), max_error=1e-5, mean_error=3e-6)
 
 
 def test_stats_backward(bsize, channels, other_1, other_2, other_3):
@@ -25,29 +23,13 @@ def test_stats_backward(bsize, channels, other_1, other_2, other_3):
     x = torch.randn(bsize, channels, other_1, other_2, other_3, dtype=torch.float16, device='cuda').to(
         memory_format=torch.channels_last_3d
     )
-    x.requires_grad_(True)
+    # Scaled by the voxel count, as a loss scale keeps fp16 gradients of the order of 1 out of the subnormal range.
+    voxels = x.numel() // channels
+    mean_grad = torch.randn(channels, device='cuda') * voxels / 3
+    sqmean_grad = torch.randn(channels, device='cuda') * voxels / 3
 
-    upstr_sqmean = torch.randn(channels, device='cuda', dtype=torch.float32) / 3
-    upstr_mean = torch.randn(channels, device='cuda', dtype=torch.float32) / 3
+    grad = StatsBackward(x, mean_grad, sqmean_grad)
 
-    x_fp32 = x.to(torch.float32)
-    mean = x_fp32.mean(dim=(0, 2, 3, 4))
-    sqmean = (x_fp32**2).mean(dim=(0, 2, 3, 4))
-
-    loss = (sqmean * upstr_sqmean).sum() + (mean * upstr_mean).sum()
-    loss.backward()
-    grad = x.grad
-
-    grad_to_check = StatsBackward(x, upstr_mean, upstr_sqmean)
-    if x.numel() // channels >= 100:
-        assert allclose_two_stage(
-            grad,
-            grad_to_check,
-            rtol_strict=1e-5,
-            atol_strict=1e-4,
-            rtol_narrow=1e-4,
-            atol_narrow=1e-3,
-            debug_info='print',
-        )
-    else:
-        assert torch.allclose(grad, grad_to_check, rtol=1e-5, atol=5e-4)
+    x_fp32 = x.float().requires_grad_()
+    ((x_fp32.mean(DIMS) * mean_grad).sum() + (x_fp32.square().mean(DIMS) * sqmean_grad).sum()).backward()
+    assert_close(grad, x_fp32.grad, max_error=1e-5, mean_error=1e-7)
