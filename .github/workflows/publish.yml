@@ -1,0 +1,31 @@
+name: Publish
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+jobs:
+  pypi:
+    runs-on: ubuntu-22.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check that the tag names the package version
+        run: |
+          version=$(python -c "import runpy; print(runpy.run_path('kerops/__version__.py')['__version__'])")
+          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "tag ${GITHUB_REF_NAME} != v${version}"; exit 1; }
+
+      - name: Build
+        run: |
+          pip install build
+          python -m build
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
