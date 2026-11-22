@@ -32,7 +32,9 @@ def conv_shapes(x, weight):
 
 def channels_last_output(x, out_channels):
     bsize, _, H, W, D = x.shape
-    return torch.empty([bsize, H, W, D, out_channels], device=x.device, dtype=x.dtype).permute(0, 4, 1, 2, 3)
+    return torch.empty(
+        bsize, out_channels, H, W, D, device=x.device, dtype=x.dtype, memory_format=torch.channels_last_3d
+    )
 
 
 def _problem_sizes(x, weight):

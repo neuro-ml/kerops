@@ -18,6 +18,8 @@ def test_avgpool_ceil_stats(bsize, channels, other_1, other_2, other_3):
     )
 
     out, mean, sqmean = AvgPoolCeilStats(x)
+    # A view returned from an autograd.Function forbids in-place ops on it.
+    assert not out._is_view()
 
     reference = F.avg_pool3d(x.float(), 2, ceil_mode=True)
     assert_close(out, reference, max_error=1e-5, mean_error=1e-7)
@@ -38,6 +40,7 @@ def test_avgpool_ceil_stats_backward(bsize, channels, other_1, other_2, other_3)
     sqmean_grad = torch.randn(channels, device='cuda') * voxels
 
     grad = AvgPoolCeilStatsBackward(out_grad, mean_grad, sqmean_grad, out, x.shape)
+    assert not grad._is_view()
 
     x_fp32 = x.float().requires_grad_()
     out_fp32 = F.avg_pool3d(x_fp32, 2, ceil_mode=True)

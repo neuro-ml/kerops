@@ -23,8 +23,8 @@ def AvgPoolCeilStats(x, /, *, l1_cache_bytes=65536, num_warps=2):
     BLOCK_SIZE = next_power_of_2(input_d * num_channels)
     almost_half_d = BLOCK_SIZE // (2 * num_channels)
 
-    out_shape = [x.shape[0]] + [cdiv(sh, 2) for sh in x.shape[2:]] + [x.shape[1]]
-    output = torch.empty(out_shape, dtype=torch.float16, device=x.device).permute(0, 4, 1, 2, 3)
+    out_shape = [x.shape[0], x.shape[1]] + [cdiv(sh, 2) for sh in x.shape[2:]]
+    output = torch.empty(out_shape, dtype=torch.float16, device=x.device, memory_format=torch.channels_last_3d)
 
     grid_batch, _, grid_H, grid_W, _ = output.shape
 
@@ -87,8 +87,10 @@ def AvgPoolCeilStatsBackward(
     BLOCK_SIZE = next_power_of_2(d_outgrad * num_channels)
     almost_half_d = BLOCK_SIZE // (2 * num_channels)
 
-    outgrad_shape = [bsize, h_outgrad, w_outgrad, d_outgrad, num_channels]
-    outgrad = torch.zeros(outgrad_shape, dtype=torch.float16, device=inpgrad.device).permute(0, 4, 1, 2, 3)
+    outgrad_shape = [bsize, num_channels, h_outgrad, w_outgrad, d_outgrad]
+    outgrad = torch.empty(
+        outgrad_shape, dtype=torch.float16, device=inpgrad.device, memory_format=torch.channels_last_3d
+    ).zero_()
 
     grid_batch, _, grid_H, grid_W, _ = inpgrad.shape
 
