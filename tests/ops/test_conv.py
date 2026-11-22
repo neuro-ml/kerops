@@ -42,6 +42,8 @@ def test_conv(bsize, conv_in_channels, conv_out_channels, other_1, other_2, othe
     with torch.backends.cudnn.flags(enabled=True, allow_tf32=False):
         out_standard = F.conv3d(x.float(), weight.float(), None, padding=(1, 1, 1), stride=(1, 1, 1))
     out_check = Conv3d(x, weight_kernel)
+    # A view returned from an autograd.Function forbids in-place ops on it.
+    assert not out_check._is_view()
 
     assert_close(out_check, out_standard, max_error=5e-3, mean_error=2e-4)
 
